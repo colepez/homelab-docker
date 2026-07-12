@@ -1,0 +1,24 @@
+services:
+  colepezzi:
+    image: cloudflare/cloudflared:latest
+    container_name: colepezzi
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN_COLEPEZZI}
+    environment:
+      - TZ=${TZ}
+
+  pezzitools:
+    image: cloudflare/cloudflared:latest
+    container_name: pezzitools
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN_PEZZITOOLS}
+    environment:
+      - TZ=${TZ}
+
+  ticketcroc:
+    image: cloudflare/cloudflared:latest
+    container_name: ticketcroc
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN_TICKETCROC}
+    environment:
+      - TZ=${TZ}
