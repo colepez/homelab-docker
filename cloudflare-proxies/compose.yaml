@@ -1,7 +1,7 @@
 services:
   cloudflare:
     image: cloudflare/cloudflared:latest
-    container_name: pezzitools
+    container_name: cloudflare
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
