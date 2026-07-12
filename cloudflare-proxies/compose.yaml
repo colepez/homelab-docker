@@ -3,25 +3,28 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: colepezzi
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN_COLEPEZZI}
+    command: tunnel --no-autoupdate run 
     env_file: /srv/docker/cloudflare-proxies/.env
     environment:
       - TZ=${TZ}
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN_COLEPEZZI}
 
   pezzitools:
     image: cloudflare/cloudflared:latest
     container_name: pezzitools
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN_PEZZITOOLS}
+    command: tunnel --no-autoupdate run
     env_file: /srv/docker/cloudflare-proxies/.env
     environment:
       - TZ=${TZ}
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN_PEZZITOOLS}
 
   ticketcroc:
     image: cloudflare/cloudflared:latest
     container_name: ticketcroc
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN_TICKETCROC}
+    command: tunnel --no-autoupdate run
     env_file: /srv/docker/cloudflare-proxies/.env
     environment:
       - TZ=${TZ}
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN_TICKETCROC}
