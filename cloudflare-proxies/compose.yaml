@@ -1,9 +1,9 @@
 services:
-  pezzitools:
+  cloudflare:
     image: cloudflare/cloudflared:latest
     container_name: pezzitools
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
       - TZ=${TZ}
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN_PEZZITOOLS}
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
