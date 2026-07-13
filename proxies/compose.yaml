@@ -3,12 +3,11 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: cloudflare
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     networks:
       - edge
     environment:
       - TZ=${TZ}
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
   nginx:
     image: nginx:latest
     container_name: nginx-proxy
