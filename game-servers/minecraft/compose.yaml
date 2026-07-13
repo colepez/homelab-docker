@@ -1,6 +1,7 @@
 services:
   router:
     image: itzg/mc-router
+    restart: unless-stopped
     environment:
       IN_DOCKER: true
       AUTO_SCALE_DOWN: true
