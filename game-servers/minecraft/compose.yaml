@@ -17,6 +17,7 @@ services:
     environment:
       EULA: "TRUE"
       VERSION: "26.2"
+      MOTD: "§l§cWelcome§r to our §aAwesome§r Server"
     volumes:
       - /srv/docker/game-servers/minecraft/zinnberlycraft/data:/data
     restart: unless-stopped
@@ -24,11 +25,13 @@ services:
       mc-router.host: "${ZINNBERLYCRAFT_HOST}"
     networks:
       - edge
+      
 
   foreverworld:
     image: itzg/minecraft-server
     environment:
       EULA: "TRUE"
+      MOTD: "Cole's Forever World"
     labels:
       mc-router.host: "${FOREVERWORLD_HOST}"
     volumes:
