@@ -9,6 +9,7 @@ services:
       AUTO_SCALE_ASLEEP_MOTD: "Server is asleep. Join again to wake it up!"
       API_BINDING: ":8080"
       METRICS_BACKEND: prometheus
+      RECORD_LOGINS: true
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
