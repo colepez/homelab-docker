@@ -5,6 +5,7 @@ services:
     restart: unless-stopped
     environment:
       - TZ=${TZ}
+      - HOMEPAGE_ALLOWED_HOSTS=${ALLOWED_HOSTS}
     volumes:
       - /srv/docker/dashboards/homepage/:/app/config
       - /var/run/docker.sock:/var/run/docker.sock:ro
