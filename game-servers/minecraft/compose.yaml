@@ -31,7 +31,7 @@ services:
     image: itzg/minecraft-server
     environment:
       EULA: "TRUE"
-      MOTD: "Cole's Forever World"
+      MOTD: "${FOREVERWORLD_MOTD}"
     labels:
       mc-router.host: "${FOREVERWORLD_HOST}"
     volumes:
