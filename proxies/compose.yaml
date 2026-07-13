@@ -23,9 +23,8 @@ services:
       - "8444:8444"
       - "9444:9444"
     volumes:
-      - /srv/docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - /srv/docker/nginx/conf.d:/etc/nginx/conf.d:ro
-      - /srv/docker/nginx/streams.d:/etc/nginx/streams.d:ro
+      - /srv/docker/nginx:/etc/nginx:ro
+
       
 networks:
   edge:
