@@ -7,6 +7,18 @@ services:
       - TZ=${TZ}
     volumes:
       - /srv/docker/dashboards/homepage/data:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - edge
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: uptime-kuma
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - /srv/docker/dashboards/uptime-kuma/data:/app/data
     networks:
       - edge
 
