@@ -9,6 +9,8 @@ services:
       - HOMEPAGE_VAR_TRUENAS_KEY=${HOMEPAGE_VAR_TRUENAS_KEY}
       - HOMEPAGE_VAR_PROXMOX_TOKEN_ID=${HOMEPAGE_VAR_PROXMOX_TOKEN_ID}
       - HOMEPAGE_VAR_PROXMOX_SECRET=${HOMEPAGE_VAR_PROXMOX_SECRET}
+      - HOMEPAGE_VAR_PBS_TOKEN_ID=${HOMEPAGE_VAR_PBS_TOKEN_ID}
+      - HOMEPAGE_VAR_PBS_SECRET=${HOMEPAGE_VAR_PBS_SECRET}
     volumes:
       - /srv/docker/dashboards/homepage/:/app/config
       - /var/run/docker.sock:/var/run/docker.sock:ro
