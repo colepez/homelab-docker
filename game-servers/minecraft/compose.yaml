@@ -11,6 +11,8 @@ services:
       - "25565:25565"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - edge
 
   zinnberlycraft:
     image: itzg/minecraft-server:latest
@@ -24,6 +26,8 @@ services:
     restart: unless-stopped
     labels:
       mc-router.host: "${ZINNBERLYCRAFT_HOST}"
+    networks:
+      - edge
 
   foreverworld:
     image: itzg/minecraft-server
@@ -31,3 +35,11 @@ services:
       EULA: "TRUE"
     labels:
       mc-router.host: "${FPREVERWORLD_HOST}"
+    networks:
+      - edge
+
+
+networks:
+  edge:
+    name: edge
+    driver: bridge
