@@ -34,7 +34,9 @@ services:
     environment:
       EULA: "TRUE"
     labels:
-      mc-router.host: "${FPREVERWORLD_HOST}"
+      mc-router.host: "${FOREVERWORLD_HOST}"
+    volumes:
+      - /srv/docker/minecraft/forever/data:/data
     networks:
       - edge
 
