@@ -1,1 +1,16 @@
+services:
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - /srv/docker/dashboards/homepage/data:/app/config
+    networks:
+      - edge
 
+networks:
+  edge:
+    name: edge
+    external: true
