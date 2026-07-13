@@ -18,7 +18,7 @@ services:
     environment:
       - TZ=${TZ}
     volumes:
-      - /srv/docker/dashboards/uptime-kuma/:/app/data
+      - /srv/docker/uptime-kuma/data:/app/data/:/app/data
     networks:
       - edge
 
