@@ -1,0 +1,33 @@
+services:
+  router:
+    image: itzg/mc-router
+    environment:
+      IN_DOCKER: true
+      AUTO_SCALE_DOWN: true
+      AUTO_SCALE_UP: true
+      AUTO_SCALE_DOWN_AFTER: 2h
+      AUTO_SCALE_ASLEEP_MOTD: "Server is asleep. Join again to wake it up!"
+    ports:
+      - "25565:25565"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  zinnberlycraft:
+    image: itzg/minecraft-server:latest
+    ports:
+      - "25565:25565"
+    environment:
+      EULA: "TRUE"
+      VERSION: "26.2"
+    volumes:
+      - /srv/docker/minecraft/zinnberlycraft/data:/data
+    restart: unless-stopped
+    labels:
+      mc-router.host: "${ZINNBERLYCRAFT_HOST}"
+
+  foreverworld:
+    image: itzg/minecraft-server
+    environment:
+      EULA: "TRUE"
+    labels:
+      mc-router.host: "${FPREVERWORLD_HOST}"
