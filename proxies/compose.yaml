@@ -19,17 +19,43 @@ services:
       - "34197:34197/udp"
       - "80:80"
       - "443:443"
-      - "8443:8443"
-      - "8444:8444"
-      - "9444:9444"
     volumes:
       - /srv/docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - /srv/docker/nginx/conf.d:/etc/nginx/conf.d:ro
       - /srv/docker/nginx/streams.d:/etc/nginx/streams.d:ro
       - /srv/docker/nginx/certs:/etc/nginx/certs:ro
 
-      
+  acme:
+    image: neilpang/acme.sh:latest
+    container_name: acme
+    restart: unless-stopped
+    environment:
+      - CF_Token=${CF_TOKEN}
+      - ACME_DOMAIN=${ACME_DOMAIN}
+    volumes:
+      - acme_data:/acme.sh
+      - /srv/docker/nginx/certs:/certs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        apk add --no-cache docker-cli
+        if [ ! -f "/acme.sh/${ACME_DOMAIN}_ecc/${ACME_DOMAIN}.cer" ]; then
+          acme.sh --issue --dns dns_cf -d "$ACME_DOMAIN" -d "*.$ACME_DOMAIN" --keylength ec-256
+        fi
+        acme.sh --install-cert -d "$ACME_DOMAIN" --ecc \
+          --key-file "/certs/$ACME_DOMAIN/privkey.pem" \
+          --fullchain-file "/certs/$ACME_DOMAIN/fullchain.pem" \
+          --reloadcmd "docker exec nginx-proxy nginx -s reload"
+        exec acme.sh --daemon
+
+
 networks:
   edge:
     name: edge
     driver: bridge
+
+volumes:
+  acme_data:
