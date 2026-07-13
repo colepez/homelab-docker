@@ -1,0 +1,14 @@
+services:
+  glance:
+    image: glanceapp/glance:latest
+    container_name: glance
+    restart: unless-stopped
+    volumes:
+      - ./glance.yml:/app/glance.yml
+    networks:
+      - edge
+
+networks:
+  edge:
+    name: edge
+    external: true

@@ -1,0 +1,47 @@
+pages:
+  - name: Cybersecurity
+    columns:
+      - size: full
+        widgets:
+          - type: rss
+            title: Industry News
+            style: detailed-list
+            limit: 15
+            collapse-after: 5
+            cache: 30m
+            feeds:
+              - url: https://krebsonsecurity.com/feed/
+                title: Krebs on Security
+              - url: https://www.bleepingcomputer.com/feed/
+                title: BleepingComputer
+              - url: https://www.darkreading.com/rss.xml
+                title: Dark Reading
+              - url: https://www.securityweek.com/feed/
+                title: SecurityWeek
+              - url: https://feeds.feedburner.com/TheHackersNews
+                title: The Hacker News
+              - url: https://therecord.media/feed
+                title: The Record
+      - size: full
+        widgets:
+          - type: rss
+            title: Competitors
+            style: detailed-list
+            limit: 15
+            collapse-after: 5
+            cache: 30m
+            feeds:
+              - url: https://www.crowdstrike.com/en-us/blog/feed
+                title: CrowdStrike
+              - url: https://www.sentinelone.com/labs/feed/
+                title: SentinelOne Labs
+              - url: https://www.rapid7.com/blog/rss/
+                title: Rapid7
+              - url: https://www.paloaltonetworks.com/blog/feed/
+                title: Palo Alto Networks
+              - url: https://arcticwolf.com/feed/
+                title: Arctic Wolf
+              - url: https://expel.com/blog/rss.xml
+                title: Expel
+              - url: https://redcanary.com/blog/feed/
+                title: Red Canary

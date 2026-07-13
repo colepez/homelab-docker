@@ -1,0 +1,18 @@
+services:
+  freshrss:
+    image: freshrss/freshrss:latest
+    container_name: freshrss
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+      - CRON_MIN=2,32
+    volumes:
+      - /srv/docker/rss/data:/var/www/FreshRSS/data
+      - /srv/docker/rss/extensions:/var/www/FreshRSS/extensions
+    networks:
+      - edge
+
+networks:
+  edge:
+    name: edge
+    external: true

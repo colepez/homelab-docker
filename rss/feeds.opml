@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="1.0">
+  <head>
+    <title>Cybersecurity Feeds</title>
+  </head>
+  <body>
+    <outline text="Industry News" title="Industry News">
+      <outline text="Krebs on Security" title="Krebs on Security" type="rss" xmlUrl="https://krebsonsecurity.com/feed/" htmlUrl="https://krebsonsecurity.com/"/>
+      <outline text="BleepingComputer" title="BleepingComputer" type="rss" xmlUrl="https://www.bleepingcomputer.com/feed/" htmlUrl="https://www.bleepingcomputer.com/"/>
+      <outline text="Dark Reading" title="Dark Reading" type="rss" xmlUrl="https://www.darkreading.com/rss.xml" htmlUrl="https://www.darkreading.com/"/>
+      <outline text="SecurityWeek" title="SecurityWeek" type="rss" xmlUrl="https://www.securityweek.com/feed/" htmlUrl="https://www.securityweek.com/"/>
+      <outline text="The Hacker News" title="The Hacker News" type="rss" xmlUrl="https://feeds.feedburner.com/TheHackersNews" htmlUrl="https://thehackernews.com/"/>
+      <outline text="The Record" title="The Record" type="rss" xmlUrl="https://therecord.media/feed" htmlUrl="https://therecord.media/"/>
+    </outline>
+    <outline text="Competitors" title="Competitors">
+      <outline text="CrowdStrike Blog" title="CrowdStrike Blog" type="rss" xmlUrl="https://www.crowdstrike.com/en-us/blog/feed" htmlUrl="https://www.crowdstrike.com/en-us/blog/"/>
+      <outline text="SentinelOne Labs" title="SentinelOne Labs" type="rss" xmlUrl="https://www.sentinelone.com/labs/feed/" htmlUrl="https://www.sentinelone.com/labs/"/>
+      <outline text="Rapid7 Blog" title="Rapid7 Blog" type="rss" xmlUrl="https://www.rapid7.com/blog/rss/" htmlUrl="https://www.rapid7.com/blog/"/>
+      <outline text="Palo Alto Networks Blog" title="Palo Alto Networks Blog" type="rss" xmlUrl="https://www.paloaltonetworks.com/blog/feed/" htmlUrl="https://www.paloaltonetworks.com/blog/"/>
+      <outline text="Arctic Wolf" title="Arctic Wolf" type="rss" xmlUrl="https://arcticwolf.com/feed/" htmlUrl="https://arcticwolf.com/blog/"/>
+      <outline text="Expel Blog" title="Expel Blog" type="rss" xmlUrl="https://expel.com/blog/rss.xml" htmlUrl="https://expel.com/blog/"/>
+      <outline text="Red Canary Blog" title="Red Canary Blog" type="rss" xmlUrl="https://redcanary.com/blog/feed/" htmlUrl="https://redcanary.com/blog/"/>
+    </outline>
+  </body>
+</opml>
