@@ -1,0 +1,34 @@
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: uptime-kuma
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - /srv/docker/uptime-kuma/data:/app/data
+    networks:
+      - edge
+
+  diun:
+    image: crazymax/diun:latest
+    container_name: diun
+    command: serve
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+      - DIUN_WATCH_WORKERS=20
+      - DIUN_WATCH_SCHEDULE=0 */6 * * *
+      - DIUN_PROVIDERS_DOCKER=true
+      - DIUN_PROVIDERS_DOCKER_WATCHBYDEFAULT=true
+      - DIUN_NOTIF_SLACK_WEBHOOKURL=${DIUN_NOTIF_SLACK_WEBHOOKURL}
+    volumes:
+      - /srv/docker/monitoring/diun/data:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - edge
+
+networks:
+  edge:
+    name: edge
+    external: true
