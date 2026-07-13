@@ -6,7 +6,7 @@ services:
     environment:
       - TZ=${TZ}
     volumes:
-      - /srv/docker/dashboards/homepage/data:/app/config
+      - /srv/docker/dashboards/homepage/:/app/config
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - edge
@@ -18,7 +18,7 @@ services:
     environment:
       - TZ=${TZ}
     volumes:
-      - /srv/docker/dashboards/uptime-kuma/data:/app/data
+      - /srv/docker/dashboards/uptime-kuma/:/app/data
     networks:
       - edge
 
