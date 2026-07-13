@@ -42,8 +42,9 @@ services:
       - |
         set -e
         apk add --no-cache docker-cli
+        acme.sh --set-default-ca --server letsencrypt
         if [ ! -f "/acme.sh/${ACME_DOMAIN}_ecc/${ACME_DOMAIN}.cer" ]; then
-          acme.sh --issue --dns dns_cf -d "$ACME_DOMAIN" -d "*.$ACME_DOMAIN" --keylength ec-256
+          acme.sh --issue --server letsencrypt --dns dns_cf -d "$ACME_DOMAIN" -d "*.$ACME_DOMAIN" --keylength ec-256
         fi
         acme.sh --install-cert -d "$ACME_DOMAIN" --ecc \
           --key-file "/certs/$ACME_DOMAIN/privkey.pem" \
