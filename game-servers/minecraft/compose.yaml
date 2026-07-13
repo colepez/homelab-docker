@@ -18,7 +18,7 @@ services:
       EULA: "TRUE"
       VERSION: "26.2"
     volumes:
-      - /srv/docker/minecraft/zinnberlycraft/data:/data
+      - /srv/docker/game-servers/minecraft/zinnberlycraft/data:/data
     restart: unless-stopped
     labels:
       mc-router.host: "${ZINNBERLYCRAFT_HOST}"
@@ -32,7 +32,7 @@ services:
     labels:
       mc-router.host: "${FOREVERWORLD_HOST}"
     volumes:
-      - /srv/docker/minecraft/forever/data:/data
+      - /srv/docker/game-servers/minecraft/forever/data:/data
     networks:
       - edge
 
