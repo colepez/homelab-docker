@@ -15,7 +15,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - edge
-
   zinnberlycraft:
     image: itzg/minecraft-server:latest
     environment:
@@ -29,7 +28,6 @@ services:
       mc-router.host: "${ZINNBERLYCRAFT_HOST}"
     networks:
       - edge
-
   foreverworld:
     image: itzg/minecraft-server
     environment:
