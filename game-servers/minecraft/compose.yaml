@@ -29,7 +29,6 @@ services:
       mc-router.host: "${ZINNBERLYCRAFT_HOST}"
     networks:
       - edge
-      
 
   foreverworld:
     image: itzg/minecraft-server
@@ -42,10 +41,31 @@ services:
     labels:
       mc-router.host: "${FOREVERWORLD_HOST}"
     volumes:
-      - /srv/docker/game-servers/minecraft/forever/data:/data
+      - /srv/docker/game-servers/minecraft/foreverworld/data:/data
     networks:
       - edge
-
+  atm11:
+    image: itzg/minecraft-server:java25
+    environment:
+      EULA: "TRUE"
+      MOTD: "${ATM11_MOTD}"
+      VIEW_DISTANCE: "10"
+      VERSION: "26.1.2"
+      difficulty: "normal"
+      CF_API_KEY: ${CF_API_KEY}
+      MODPACK_PLATFORM: AUTO_CURSEFORGE
+      CF_PAGE_URL: https://www.curseforge.com/minecraft/modpacks/all-the-mods-11
+      ALLOW_FLIGHT: "TRUE"
+      MEMORY: "8G"
+      USE_AIKAR_FLAGS: "TRUE"
+      MAX_TICK_TIME: "-1"
+      CF_PARALLEL_DOWNLOADS: "6"
+    labels:
+      mc-router.host: "${ATM11_HOST}"
+    volumes:
+      - /srv/docker/game-servers/minecraft/atm11/data:/data
+    networks:
+      - edge    
 
 networks:
   edge:
