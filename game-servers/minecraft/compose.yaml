@@ -37,6 +37,7 @@ services:
       EULA: "TRUE"
       MOTD: "${FOREVERWORLD_MOTD}"
       simulation-distance: "16" 
+      VERSION: "26.2"
       difficulty: "normal"
     labels:
       mc-router.host: "${FOREVERWORLD_HOST}"
