@@ -57,7 +57,6 @@ services:
       MEMORY: "8G"
       USE_AIKAR_FLAGS: "TRUE"
       MAX_TICK_TIME: "-1"
-      CF_PARALLEL_DOWNLOADS: "4"
     labels:
       mc-router.host: "${ATM11_HOST}"
     volumes:
