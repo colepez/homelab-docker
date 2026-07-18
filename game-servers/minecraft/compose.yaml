@@ -50,7 +50,7 @@ services:
       VIEW_DISTANCE: "10"
       VERSION: "26.1.2"
       difficulty: "normal"
-      CF_API_KEY: ${CF_API_KEY}
+      CF_API_KEY_FILE: /run/secrets/cf_api_key
       MODPACK_PLATFORM: AUTO_CURSEFORGE
       CF_PAGE_URL: https://www.curseforge.com/minecraft/modpacks/all-the-mods-11
       ALLOW_FLIGHT: "TRUE"
@@ -62,9 +62,15 @@ services:
     volumes:
       - /srv/docker/game-servers/minecraft/atm11/data:/data
     networks:
-      - edge    
+      - edge
+    secrets:
+      - cf_api_key
 
 networks:
   edge:
     name: edge
     external: true
+
+secrets:
+  cf_api_key:
+    file: /srv/docker/game-servers/minecraft/curseforgeapi/api.env
