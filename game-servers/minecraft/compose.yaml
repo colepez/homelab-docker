@@ -85,6 +85,9 @@ services:
       SPAWN_PROTECTION: "1"
       ENABLE_COMMAND_BLOCK: "true"
       ALLOW_FLIGHT: "TRUE"
+      ENABLE_WHITELIST: "TRUE"
+      WHITELIST: "colepez"
+      EXISTING_WHITELIST_FILE: MERGE
     labels:
       mc-router.host: "${GTNH_HOST}"
     volumes:
