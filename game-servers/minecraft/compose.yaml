@@ -42,54 +42,52 @@ services:
       - /srv/docker/game-servers/minecraft/forever/data:/data
     networks:
       - edge
-  atm11:
+  # atm11:
+  #   image: itzg/minecraft-server:java25
+  #   environment:
+  #     EULA: "TRUE"
+  #     MOTD: "${ATM11_MOTD}"
+  #     VIEW_DISTANCE: "10"
+  #     VERSION: "26.1.2"
+  #     difficulty: "normal"
+  #     CF_API_KEY_FILE: /run/secrets/cf_api_key
+  #     MODPACK_PLATFORM: AUTO_CURSEFORGE
+  #     CF_PAGE_URL: https://www.curseforge.com/minecraft/modpacks/all-the-mods-11/files/8431787
+  #     ALLOW_FLIGHT: "TRUE"
+  #     MEMORY: "8G"
+  #     USE_AIKAR_FLAGS: "TRUE"
+  #     MAX_TICK_TIME: "-1"
+  #   labels:
+  #     mc-router.host: "${ATM11_HOST}"
+  #   volumes:
+  #     - /srv/docker/game-servers/minecraft/atm11/data:/data
+  #   networks:
+  #     - edge
+  #   secrets:
+  #     - cf_api_key
+  createch2:
     image: itzg/minecraft-server:java25
     environment:
       EULA: "TRUE"
-      MOTD: "${ATM11_MOTD}"
+      MOTD: "${CREATECH2_MOTD}"
       VIEW_DISTANCE: "10"
-      VERSION: "26.1.2"
       difficulty: "normal"
       CF_API_KEY_FILE: /run/secrets/cf_api_key
       MODPACK_PLATFORM: AUTO_CURSEFORGE
-      CF_PAGE_URL: https://www.curseforge.com/minecraft/modpacks/all-the-mods-11/files/8431787
+      CF_PAGE_URL: https://www.curseforge.com/minecraft/modpacks/createch-2/files/8460338
       ALLOW_FLIGHT: "TRUE"
-      MEMORY: "8G"
+      MEMORY: "6G"
       USE_AIKAR_FLAGS: "TRUE"
       MAX_TICK_TIME: "-1"
+      VERSION: "1.21.1"
     labels:
-      mc-router.host: "${ATM11_HOST}"
+      mc-router.host: "${CREATECH2_HOST}"
     volumes:
-      - /srv/docker/game-servers/minecraft/atm11/data:/data
+      - /srv/docker/game-servers/minecraft/createch2/data:/data
     networks:
       - edge
     secrets:
       - cf_api_key
-  gtnh:
-    # java25 is recommended for GTNH 2.8.0+
-    image: itzg/minecraft-server:java25
-    environment:
-      EULA: "TRUE"
-      TYPE: GTNH
-      GTNH_PACK_VERSION: "2.8.4"
-      # set to "true" after the first successful start to skip the install/update check
-      SKIP_GTNH_UPDATE_CHECK: "false"
-      MOTD: "GT: New Horizons 2.8.4"
-      MEMORY: "6G"
-      # GTNH server defaults
-      DIFFICULTY: "hard"
-      LEVEL_TYPE: "rwg"
-      VIEW_DISTANCE: "8"
-      SPAWN_PROTECTION: "1"
-      ENABLE_COMMAND_BLOCK: "true"
-      ALLOW_FLIGHT: "TRUE"
-    labels:
-      mc-router.host: "${GTNH_HOST}"
-    volumes:
-      - /srv/docker/game-servers/minecraft/gtnh/data:/data
-    restart: unless-stopped
-    networks:
-      - edge
 
 networks:
   edge:
