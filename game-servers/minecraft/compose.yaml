@@ -39,7 +39,7 @@ services:
     labels:
       mc-router.host: "${FOREVERWORLD_HOST}"
     volumes:
-      - /srv/docker/game-servers/minecraft/foreverworld/data:/data
+      - /srv/docker/game-servers/minecraft/forever/data:/data
     networks:
       - edge
   atm11:
