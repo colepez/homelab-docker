@@ -65,6 +65,31 @@ services:
       - edge
     secrets:
       - cf_api_key
+  gtnh:
+    # java25 is recommended for GTNH 2.8.0+
+    image: itzg/minecraft-server:java25
+    environment:
+      EULA: "TRUE"
+      TYPE: GTNH
+      GTNH_PACK_VERSION: "2.8.4"
+      # set to "true" after the first successful start to skip the install/update check
+      SKIP_GTNH_UPDATE_CHECK: "false"
+      MOTD: "GT: New Horizons 2.8.4"
+      MEMORY: "6G"
+      # GTNH server defaults
+      DIFFICULTY: "hard"
+      LEVEL_TYPE: "rwg"
+      VIEW_DISTANCE: "8"
+      SPAWN_PROTECTION: "1"
+      ENABLE_COMMAND_BLOCK: "true"
+      ALLOW_FLIGHT: "TRUE"
+    labels:
+      mc-router.host: "${GTNH_HOST}"
+    volumes:
+      - /srv/docker/game-servers/minecraft/gtnh/data:/data
+    restart: unless-stopped
+    networks:
+      - edge
 
 networks:
   edge:
