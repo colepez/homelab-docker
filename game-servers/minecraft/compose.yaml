@@ -73,6 +73,8 @@ services:
   gtnh:
     # java25 is recommended for GTNH 2.8.0+
     image: itzg/minecraft-server:java25
+    # dedicated cores: tick thread + GC don't compete with the other servers
+    cpuset: "2-3"
     environment:
       EULA: "TRUE"
       TYPE: GTNH
