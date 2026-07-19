@@ -12,6 +12,7 @@ services:
       - HOMEPAGE_VAR_PBS_TOKEN_ID=${HOMEPAGE_VAR_PBS_TOKEN_ID}
       - HOMEPAGE_VAR_PBS_SECRET=${HOMEPAGE_VAR_PBS_SECRET}
       - HOMEPAGE_VAR_PORTAINER_KEY=${HOMEPAGE_VAR_PORTAINER_KEY}
+      - HOMEPAGE_VAR_UNIFI_API_KEY=${HOMEPAGE_VAR_UNIFI_API_KEY}
     volumes:
       - /srv/docker/dashboards/homepage/:/app/config
       - /srv/docker/dashboards/homepage/images:/app/public/images:ro
