@@ -20,7 +20,7 @@ services:
     environment:
       EULA: "TRUE"
       VERSION: "26.2"
-      view-distance: "32"
+      view-distance: "12"
       MOTD: "§l§cWelcome§r to our §aAwesome§r Server"
     volumes:
       - /srv/docker/game-servers/minecraft/zinnberlycraft/data:/data
@@ -34,8 +34,8 @@ services:
     environment:
       EULA: "TRUE"
       MOTD: "${FOREVERWORLD_MOTD}"
-      simulation-distance: "32" 
-      view-distance: "32"
+      simulation-distance: "12"
+      view-distance: "12"
       VERSION: "26.2"
       difficulty: "normal"
     labels:
@@ -75,9 +75,10 @@ services:
       TYPE: GTNH
       GTNH_PACK_VERSION: "2.8.4"
       # set to "true" after the first successful start to skip the install/update check
-      SKIP_GTNH_UPDATE_CHECK: "false"
+      SKIP_GTNH_UPDATE_CHECK: "true"
       MOTD: "GT: New Horizons 2.8.4"
       MEMORY: "6G"
+      USE_AIKAR_FLAGS: "TRUE"
       # GTNH server defaults
       DIFFICULTY: "hard"
       LEVEL_TYPE: "rwg"
