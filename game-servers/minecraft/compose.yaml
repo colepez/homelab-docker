@@ -52,7 +52,7 @@ services:
       difficulty: "normal"
       CF_API_KEY_FILE: /run/secrets/cf_api_key
       MODPACK_PLATFORM: AUTO_CURSEFORGE
-      CF_PAGE_URL: https://www.curseforge.com/minecraft/modpacks/all-the-mods-11
+      CF_PAGE_URL: https://www.curseforge.com/minecraft/modpacks/all-the-mods-11/files/8431787
       ALLOW_FLIGHT: "TRUE"
       MEMORY: "8G"
       USE_AIKAR_FLAGS: "TRUE"
