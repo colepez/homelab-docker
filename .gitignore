@@ -1,0 +1,12 @@
+# Environment files often hold real secrets/hostnames — never commit them.
+# Template files stay tracked so the repo shows what variables are expected.
+.env
+*.env
+!*.env.example
+
+# Common credential/key file patterns
+*.pem
+*.key
+*credentials*.json
+*.secret
+secrets/
