@@ -13,6 +13,7 @@ services:
       - HOMEPAGE_VAR_PBS_SECRET=${HOMEPAGE_VAR_PBS_SECRET}
     volumes:
       - /srv/docker/dashboards/homepage/:/app/config
+      - /srv/docker/dashboards/homepage/images:/app/public/images:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - edge
