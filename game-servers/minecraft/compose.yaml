@@ -20,6 +20,7 @@ services:
     environment:
       EULA: "TRUE"
       VERSION: "26.2"
+      view-distance: "32"
       MOTD: "§l§cWelcome§r to our §aAwesome§r Server"
     volumes:
       - /srv/docker/game-servers/minecraft/zinnberlycraft/data:/data
