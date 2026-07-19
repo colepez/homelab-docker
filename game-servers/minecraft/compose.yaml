@@ -2,6 +2,7 @@ services:
   router:
     image: itzg/mc-router
     restart: unless-stopped
+    cpuset: "0-1"
     environment:
       IN_DOCKER: true
       AUTO_SCALE_DOWN: true
@@ -17,6 +18,7 @@ services:
       - edge
   zinnberlycraft:
     image: itzg/minecraft-server:latest
+    cpuset: "0-1"
     environment:
       EULA: "TRUE"
       VERSION: "26.2"
@@ -31,6 +33,7 @@ services:
       - edge
   foreverworld:
     image: itzg/minecraft-server
+    cpuset: "0-1"
     environment:
       EULA: "TRUE"
       MOTD: "${FOREVERWORLD_MOTD}"
@@ -79,7 +82,7 @@ services:
       # set to "true" after the first successful start to skip the install/update check
       SKIP_GTNH_UPDATE_CHECK: "true"
       MOTD: "GT: New Horizons 2.8.4"
-      MEMORY: "6G"
+      MEMORY: "8G"
       USE_AIKAR_FLAGS: "TRUE"
       # GTNH server defaults
       DIFFICULTY: "hard"
@@ -91,6 +94,7 @@ services:
       ENABLE_WHITELIST: "TRUE"
       WHITELIST: "colepez"
       EXISTING_WHITELIST_FILE: MERGE
+    mem_limit: 10g
     labels:
       mc-router.host: "${GTNH_HOST}"
     volumes:
