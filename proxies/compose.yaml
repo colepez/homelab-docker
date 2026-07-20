@@ -52,7 +52,7 @@ services:
           --key-file "/certs/$ACME_DOMAIN/privkey.pem" \
           --fullchain-file "/certs/$ACME_DOMAIN/fullchain.pem" \
           --reloadcmd "docker exec nginx-proxy nginx -s reload"
-        exec acme.sh --daemon
+        exec /entry.sh daemon
 
 
 networks:
