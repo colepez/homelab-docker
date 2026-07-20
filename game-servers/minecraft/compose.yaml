@@ -22,6 +22,9 @@ services:
     cpuset: "0-1"
     environment:
       EULA: "TRUE"
+      # Fabric adds BlueMap for the live map; it's server-side only so
+      # vanilla clients still connect exactly as before.
+      TYPE: FABRIC
       VERSION: "26.2"
       VIEW_DISTANCE: "12"
       MOTD: "§l§cWelcome§r to our §aAwesome§r Server"
