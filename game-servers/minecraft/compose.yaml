@@ -5,7 +5,8 @@ services:
     cpuset: "0-1"
     environment:
       IN_DOCKER: true
-      AUTO_SCALE_DOWN: true
+      # temporarily disabled so atm10 stays up for a long Chunky pregen run
+      AUTO_SCALE_DOWN: false
       AUTO_SCALE_UP: true
       AUTO_SCALE_DOWN_AFTER: 2h
       AUTO_SCALE_ASLEEP_MOTD: "Server is asleep. Join again to wake it up!"
