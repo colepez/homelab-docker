@@ -60,6 +60,7 @@ services:
       # this path (that's only required by the AUTO_CURSEFORGE fetch-by-URL
       # platform type, which this isn't using)
       CF_SERVER_MOD: ServerFiles-7.1.zip
+      SEED: "1568897881445927183"
       MOTD: "${ATM10_MOTD}"
       VIEW_DISTANCE: "10"
       DIFFICULTY: "normal"
