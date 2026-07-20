@@ -1,14 +1,21 @@
 services:
-  uptime-kuma:
-    image: louislam/uptime-kuma:latest
-    container_name: uptime-kuma
-    restart: unless-stopped
-    environment:
-      - TZ=${TZ}
-    volumes:
-      - /srv/docker/uptime-kuma/data:/app/data
-    networks:
-      - edge
+  # uptime-kuma was meant to move here (see git history) but that migration
+  # was never actually deployed - it's still live under the `dashboards`
+  # stack (container name `uptime-kuma`, same /srv/docker/uptime-kuma/data
+  # volume). Deploying it again here would conflict with that running
+  # container. Left commented out as a reminder rather than deleted -
+  # migrating it needs a deliberate stop-old/deploy-new sequence, not a
+  # routine redeploy of this stack.
+  # uptime-kuma:
+  #   image: louislam/uptime-kuma:latest
+  #   container_name: uptime-kuma
+  #   restart: unless-stopped
+  #   environment:
+  #     - TZ=${TZ}
+  #   volumes:
+  #     - /srv/docker/uptime-kuma/data:/app/data
+  #   networks:
+  #     - edge
 
   diun:
     image: crazymax/diun:latest
@@ -22,6 +29,7 @@ services:
       - DIUN_PROVIDERS_DOCKER=true
       - DIUN_PROVIDERS_DOCKER_WATCHBYDEFAULT=true
       - DIUN_NOTIF_SLACK_WEBHOOKURL=${DIUN_NOTIF_SLACK_WEBHOOKURL}
+      - DIUN_NOTIF_DISCORD_WEBHOOKURL=${DIUN_NOTIF_DISCORD_WEBHOOKURL}
     volumes:
       - /srv/docker/monitoring/diun/data:/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
