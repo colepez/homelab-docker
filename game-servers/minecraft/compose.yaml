@@ -49,59 +49,63 @@ services:
       - edge
   # atm11:
   #   image: itzg/minecraft-server:java25
+  #   # dedicated cores: freed up from gtnh while gtnh is paused below
+  #   cpuset: "2-3"
   #   environment:
   #     EULA: "TRUE"
+  #     TYPE: CURSEFORGE
+  #     # pre-downloaded server-pack zip, placed directly in this service's
+  #     # data dir (bind-mounted below) - no CurseForge API key needed for
+  #     # this path (that's only required by the AUTO_CURSEFORGE fetch-by-URL
+  #     # platform type, which this isn't using)
+  #     CF_SERVER_MOD: atm11-server.zip
   #     MOTD: "${ATM11_MOTD}"
   #     VIEW_DISTANCE: "10"
-  #     VERSION: "26.1.2"
-  #     difficulty: "normal"
-  #     CF_API_KEY_FILE: /run/secrets/cf_api_key
-  #     MODPACK_PLATFORM: AUTO_CURSEFORGE
-  #     CF_PAGE_URL: https://www.curseforge.com/minecraft/modpacks/all-the-mods-11/files/8431787
+  #     DIFFICULTY: "normal"
   #     ALLOW_FLIGHT: "TRUE"
   #     MEMORY: "8G"
   #     USE_AIKAR_FLAGS: "TRUE"
   #     MAX_TICK_TIME: "-1"
+  #   mem_limit: 10g
   #   labels:
   #     mc-router.host: "${ATM11_HOST}"
   #   volumes:
   #     - /srv/docker/game-servers/minecraft/atm11/data:/data
+  #   restart: unless-stopped
   #   networks:
   #     - edge
-  #   secrets:
-  #     - cf_api_key
-  gtnh:
-    # java25 is recommended for GTNH 2.8.0+
-    image: itzg/minecraft-server:java25
-    # dedicated cores: tick thread + GC don't compete with the other servers
-    cpuset: "2-3"
-    environment:
-      EULA: "TRUE"
-      TYPE: GTNH
-      GTNH_PACK_VERSION: "2.8.4"
-      # set to "true" after the first successful start to skip the install/update check
-      SKIP_GTNH_UPDATE_CHECK: "true"
-      MOTD: "GT: New Horizons 2.8.4"
-      MEMORY: "8G"
-      USE_AIKAR_FLAGS: "TRUE"
-      # GTNH server defaults
-      DIFFICULTY: "hard"
-      LEVEL_TYPE: "rwg"
-      VIEW_DISTANCE: "8"
-      SPAWN_PROTECTION: "1"
-      ENABLE_COMMAND_BLOCK: "true"
-      ALLOW_FLIGHT: "TRUE"
-      ENABLE_WHITELIST: "TRUE"
-      WHITELIST: "colepez"
-      EXISTING_WHITELIST_FILE: MERGE
-    mem_limit: 10g
-    labels:
-      mc-router.host: "${GTNH_HOST}"
-    volumes:
-      - /srv/docker/game-servers/minecraft/gtnh/data:/data
-    restart: unless-stopped
-    networks:
-      - edge
+  # gtnh:
+  #   # java25 is recommended for GTNH 2.8.0+
+  #   image: itzg/minecraft-server:java25
+  #   # dedicated cores: tick thread + GC don't compete with the other servers
+  #   cpuset: "2-3"
+  #   environment:
+  #     EULA: "TRUE"
+  #     TYPE: GTNH
+  #     GTNH_PACK_VERSION: "2.8.4"
+  #     # set to "true" after the first successful start to skip the install/update check
+  #     SKIP_GTNH_UPDATE_CHECK: "true"
+  #     MOTD: "GT: New Horizons 2.8.4"
+  #     MEMORY: "8G"
+  #     USE_AIKAR_FLAGS: "TRUE"
+  #     # GTNH server defaults
+  #     DIFFICULTY: "hard"
+  #     LEVEL_TYPE: "rwg"
+  #     VIEW_DISTANCE: "8"
+  #     SPAWN_PROTECTION: "1"
+  #     ENABLE_COMMAND_BLOCK: "true"
+  #     ALLOW_FLIGHT: "TRUE"
+  #     ENABLE_WHITELIST: "TRUE"
+  #     WHITELIST: "colepez"
+  #     EXISTING_WHITELIST_FILE: MERGE
+  #   mem_limit: 10g
+  #   labels:
+  #     mc-router.host: "${GTNH_HOST}"
+  #   volumes:
+  #     - /srv/docker/game-servers/minecraft/gtnh/data:/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - edge
 
 networks:
   edge:
