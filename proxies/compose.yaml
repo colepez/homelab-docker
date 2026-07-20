@@ -25,6 +25,7 @@ services:
       - /srv/docker/nginx/streams.d:/etc/nginx/streams.d:ro
       - /srv/docker/nginx/certs:/etc/nginx/certs:ro
       - /srv/docker/nginx/www:/etc/nginx/www:ro
+      - ${BLUEMAP_ATM10_WEB_PATH}:/etc/nginx/www/map-atm10:ro
 
   acme:
     image: neilpang/acme.sh:latest
