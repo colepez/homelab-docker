@@ -47,8 +47,9 @@ services:
       - /srv/docker/game-servers/minecraft/forever/data:/data
     networks:
       - edge
-  atm11:
-    image: itzg/minecraft-server:java25
+  atm10:
+    # ATM10 targets MC 1.21 / NeoForge, which wants Java 21
+    image: itzg/minecraft-server:java21
     # dedicated cores: freed up from gtnh while gtnh is paused below
     cpuset: "2-3"
     environment:
@@ -58,8 +59,8 @@ services:
       # data dir (bind-mounted below) - no CurseForge API key needed for
       # this path (that's only required by the AUTO_CURSEFORGE fetch-by-URL
       # platform type, which this isn't using)
-      CF_SERVER_MOD: atm11-server.zip
-      MOTD: "${ATM11_MOTD}"
+      CF_SERVER_MOD: ServerFiles-7.1.zip
+      MOTD: "${ATM10_MOTD}"
       VIEW_DISTANCE: "10"
       DIFFICULTY: "normal"
       ALLOW_FLIGHT: "TRUE"
@@ -68,12 +69,36 @@ services:
       MAX_TICK_TIME: "-1"
     mem_limit: 10g
     labels:
-      mc-router.host: "${ATM11_HOST}"
+      mc-router.host: "${ATM10_HOST}"
     volumes:
-      - /srv/docker/game-servers/minecraft/atm11/data:/data
+      - /srv/docker/game-servers/minecraft/atm10/data:/data
     restart: unless-stopped
     networks:
       - edge
+  # atm11:
+  #   image: itzg/minecraft-server:java25
+  #   cpuset: "2-3"
+  #   environment:
+  #     EULA: "TRUE"
+  #     TYPE: CURSEFORGE
+  #     # pre-downloaded server-pack zip in this service's data dir;
+  #     # no CurseForge API key needed for this path
+  #     CF_SERVER_MOD: atm11-server.zip
+  #     MOTD: "${ATM11_MOTD}"
+  #     VIEW_DISTANCE: "10"
+  #     DIFFICULTY: "normal"
+  #     ALLOW_FLIGHT: "TRUE"
+  #     MEMORY: "8G"
+  #     USE_AIKAR_FLAGS: "TRUE"
+  #     MAX_TICK_TIME: "-1"
+  #   mem_limit: 10g
+  #   labels:
+  #     mc-router.host: "${ATM11_HOST}"
+  #   volumes:
+  #     - /srv/docker/game-servers/minecraft/atm11/data:/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - edge
   # gtnh:
   #   # java25 is recommended for GTNH 2.8.0+
   #   image: itzg/minecraft-server:java25
