@@ -26,6 +26,7 @@ services:
       - /srv/docker/nginx/certs:/etc/nginx/certs:ro
       - /srv/docker/nginx/www:/etc/nginx/www:ro
       - ${BLUEMAP_ATM10_WEB_PATH}:/etc/nginx/www/map-atm10:ro
+      - ${BLUEMAP_ZINNBERLYCRAFT_WEB_PATH}:/etc/nginx/www/map-zinnberlycraft:ro
 
   acme:
     image: neilpang/acme.sh:latest
