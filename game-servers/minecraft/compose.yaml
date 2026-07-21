@@ -5,7 +5,9 @@ services:
     cpuset: "0-1"
     environment:
       IN_DOCKER: true
-      # temporarily disabled so atm10 stays up for a long Chunky pregen run
+      # router-wide default stays off (zinnberlycraft/foreverworld haven't
+      # opted in) - atm10 overrides it back on via its own
+      # mc-router.auto-scale-down label now that its Chunky pregen is done
       AUTO_SCALE_DOWN: false
       AUTO_SCALE_UP: true
       AUTO_SCALE_DOWN_AFTER: 2h
@@ -75,6 +77,10 @@ services:
     mem_limit: 10g
     labels:
       mc-router.host: "${ATM10_HOST}"
+      # router-wide AUTO_SCALE_DOWN is off (see router service comment,
+      # still needed for zinnberlycraft/foreverworld) - override it on
+      # just this container now that the Chunky pregen run is finished
+      mc-router.auto-scale-down: "true"
     volumes:
       - /srv/docker/game-servers/minecraft/atm10/data:/data
     restart: unless-stopped
