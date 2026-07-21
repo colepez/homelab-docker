@@ -2,7 +2,6 @@ services:
   router:
     image: itzg/mc-router
     restart: unless-stopped
-    cpuset: "0-1"
     environment:
       IN_DOCKER: true
       # router-wide default stays off (zinnberlycraft/foreverworld haven't
@@ -21,7 +20,6 @@ services:
       - edge
   zinnberlycraft:
     image: itzg/minecraft-server:latest
-    cpuset: "0-1"
     environment:
       EULA: "TRUE"
       # Fabric adds BlueMap for the live map; it's server-side only so
@@ -39,7 +37,6 @@ services:
       - edge
   foreverworld:
     image: itzg/minecraft-server
-    cpuset: "0-1"
     environment:
       EULA: "TRUE"
       MOTD: "${FOREVERWORLD_MOTD}"
@@ -56,8 +53,6 @@ services:
   atm10:
     # ATM10 targets MC 1.21 / NeoForge, which wants Java 21
     image: itzg/minecraft-server:java21
-    # dedicated cores: freed up from gtnh while gtnh is paused below
-    cpuset: "2-3"
     environment:
       EULA: "TRUE"
       TYPE: CURSEFORGE
@@ -88,7 +83,6 @@ services:
       - edge
   # atm11:
   #   image: itzg/minecraft-server:java25
-  #   cpuset: "2-3"
   #   environment:
   #     EULA: "TRUE"
   #     TYPE: CURSEFORGE
@@ -113,8 +107,6 @@ services:
   # gtnh:
   #   # java25 is recommended for GTNH 2.8.0+
   #   image: itzg/minecraft-server:java25
-  #   # dedicated cores: tick thread + GC don't compete with the other servers
-  #   cpuset: "2-3"
   #   environment:
   #     EULA: "TRUE"
   #     TYPE: GTNH
