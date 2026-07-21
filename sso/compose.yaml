@@ -1,0 +1,45 @@
+services:
+  keycloak-db:
+    image: postgres:16-alpine
+    container_name: keycloak-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=keycloak
+      - POSTGRES_USER=keycloak
+      - POSTGRES_PASSWORD=${KEYCLOAK_DB_PASSWORD}
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    networks:
+      - edge
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: keycloak
+    restart: unless-stopped
+    command: start
+    environment:
+      - KC_DB=postgres
+      - KC_DB_URL=jdbc:postgresql://keycloak-db:5432/keycloak
+      - KC_DB_USERNAME=keycloak
+      - KC_DB_PASSWORD=${KEYCLOAK_DB_PASSWORD}
+      - KC_BOOTSTRAP_ADMIN_USERNAME=${KEYCLOAK_ADMIN_USERNAME}
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}
+      # TLS terminates at nginx (matches homepage/portainer pattern) - Keycloak
+      # serves plain HTTP internally but must know its real external hostname
+      # for correct SAML/OIDC issuer URLs and redirect validation.
+      - KC_HOSTNAME=${SSO_HOSTNAME}
+      - KC_HOSTNAME_STRICT=false
+      - KC_HTTP_ENABLED=true
+      - KC_PROXY_HEADERS=xforwarded
+    depends_on:
+      - keycloak-db
+    networks:
+      - edge
+
+networks:
+  edge:
+    name: edge
+    external: true
+
+volumes:
+  keycloak_db_data:
