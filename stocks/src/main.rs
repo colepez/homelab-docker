@@ -25,12 +25,19 @@ const TICKERS: &[(&str, &str)] = &[
     ("SQQQ", "ProShares UltraPro Short QQQ (3x inverse Nasdaq)"),
 ];
 
-const POLL_INTERVAL: Duration = Duration::from_secs(300);
+// Twelve Data's free tier is 8 credits/minute, 800 credits/day, and /quote
+// costs 1 credit per symbol requested -- polling all 9 tickers in a single
+// batched call would burn 9 credits per poll (2,592/day at a 5min cadence),
+// blowing both caps in one shot. Instead we round-robin one symbol per tick:
+// 1 credit every 2 minutes = 720 credits/day, safely under both limits, with
+// each ticker refreshing roughly every 18 minutes.
+const POLL_INTERVAL: Duration = Duration::from_secs(120);
 
 struct AppState {
     db: Connection,
     client: reqwest::Client,
     api_key: String,
+    poll_index: std::sync::atomic::AtomicUsize,
 }
 
 #[derive(Serialize)]
@@ -82,6 +89,7 @@ async fn main() -> anyhow::Result<()> {
         db,
         client: reqwest::Client::new(),
         api_key,
+        poll_index: std::sync::atomic::AtomicUsize::new(0),
     });
 
     // background poller
@@ -127,58 +135,45 @@ fn parse_num(v: &Value) -> Option<f64> {
 }
 
 async fn poll_quotes(state: &AppState) -> anyhow::Result<()> {
-    let symbols = TICKERS.iter().map(|(s, _)| *s).collect::<Vec<_>>().join(",");
+    let idx = state
+        .poll_index
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        % TICKERS.len();
+    let symbol = TICKERS[idx].0;
+
     let url = format!(
         "https://api.twelvedata.com/quote?symbol={}&apikey={}",
-        symbols, state.api_key
+        symbol, state.api_key
     );
-    let resp: Value = state.client.get(&url).send().await?.json().await?;
-
+    let quote: Value = state.client.get(&url).send().await?.json().await?;
     let ts = chrono::Utc::now().timestamp();
 
-    // Twelve Data returns a flat object for a single symbol, or an object
-    // keyed by symbol for multiple. We always request multiple.
-    let entries: Vec<(&str, &Value)> = if TICKERS.len() == 1 {
-        vec![(TICKERS[0].0, &resp)]
-    } else {
-        TICKERS
-            .iter()
-            .filter_map(|(sym, _)| resp.get(*sym).map(|v| (*sym, v)))
-            .collect()
-    };
-
-    for (symbol, quote) in entries {
-        if quote.get("status").and_then(|s| s.as_str()) == Some("error") {
-            tracing::warn!("twelvedata error for {symbol}: {quote}");
-            continue;
-        }
-        let price = quote.get("close").and_then(parse_num);
-        let change = quote.get("change").and_then(parse_num).unwrap_or(0.0);
-        let percent_change = quote.get("percent_change").and_then(parse_num).unwrap_or(0.0);
-        let volume = quote
-            .get("volume")
-            .and_then(parse_num)
-            .map(|v| v as i64);
-
-        let Some(price) = price else {
-            tracing::warn!("no close price for {symbol}, skipping: {quote}");
-            continue;
-        };
-
-        let symbol = symbol.to_string();
-        state
-            .db
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT INTO quotes (symbol, ts, price, change, percent_change, volume) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    rusqlite::params![symbol, ts, price, change, percent_change, volume],
-                )?;
-                Ok(())
-            })
-            .await?;
+    if quote.get("status").and_then(|s| s.as_str()) == Some("error") {
+        anyhow::bail!("twelvedata error for {symbol}: {quote}");
     }
 
-    tracing::info!("polled quotes at ts={ts}");
+    let price = quote.get("close").and_then(parse_num);
+    let change = quote.get("change").and_then(parse_num).unwrap_or(0.0);
+    let percent_change = quote.get("percent_change").and_then(parse_num).unwrap_or(0.0);
+    let volume = quote.get("volume").and_then(parse_num).map(|v| v as i64);
+
+    let Some(price) = price else {
+        anyhow::bail!("no close price for {symbol}: {quote}");
+    };
+
+    let symbol = symbol.to_string();
+    state
+        .db
+        .call(move |conn| {
+            conn.execute(
+                "INSERT INTO quotes (symbol, ts, price, change, percent_change, volume) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![symbol, ts, price, change, percent_change, volume],
+            )?;
+            Ok(())
+        })
+        .await?;
+
+    tracing::info!("polled {} at ts={ts}", TICKERS[idx].0);
     Ok(())
 }
 

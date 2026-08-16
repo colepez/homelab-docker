@@ -217,6 +217,11 @@
     letter-spacing: -0.01em;
     margin-bottom: 10px;
   }
+  .tc-updated {
+    font-size: 0.66rem;
+    color: var(--text-faint);
+    margin-bottom: 10px;
+  }
   .tc-spark { display: block; width: 100%; height: 48px; margin-bottom: 12px; }
   .tc-stats {
     display: grid;
@@ -284,7 +289,7 @@
         <span class="sent-val mono num" id="sent-count">--</span>
       </div>
       <div class="sent-stat">
-        <span class="sent-label">Next poll</span>
+        <span class="sent-label">Dashboard refresh</span>
         <span class="sent-val mono num" id="sent-next">--</span>
       </div>
     </div>
@@ -294,7 +299,7 @@
   </main>
 
   <footer>
-    quotes via twelvedata &middot; polled every 5min, refreshed here every 30s &middot; <a href="/stocks">&larr; back to stocks</a>
+    quotes via twelvedata &middot; each ticker refreshes ~every 18min (free-tier rate limit) &middot; dashboard re-checks every 30s &middot; <a href="/stocks">&larr; back to stocks</a>
   </footer>
 
 <script>
@@ -319,6 +324,14 @@ function fmtVol(v) {
   return String(v);
 }
 function upDown(v) { return v > 0 ? "up" : v < 0 ? "down" : ""; }
+function fmtAge(unixTs) {
+  if (!unixTs) return "--";
+  const secs = Math.max(0, Math.round(Date.now() / 1000 - unixTs));
+  if (secs < 60) return "just now";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.round(mins / 60)}h ago`;
+}
 
 function makeSkeleton(symbol) {
   const el = document.createElement("article");
@@ -331,6 +344,7 @@ function makeSkeleton(symbol) {
     </div>
     <div class="tc-name">loading&hellip;</div>
     <div class="tc-price mono num"></div>
+    <div class="tc-updated mono">--</div>
     <canvas class="tc-spark" width="240" height="48"></canvas>
     <div class="tc-stats">
       <div><span class="tc-label">24h</span><span class="tc-val mono num">--</span></div>
@@ -424,6 +438,7 @@ async function loadQuotes() {
       el.querySelector(".tc-badge").className = "tc-badge mono num " + upDown(q.percent_change);
       el.querySelector(".tc-name").textContent = q.name;
       el.querySelector(".tc-price").textContent = fmtPrice(q.price);
+      el.querySelector(".tc-updated").textContent = "updated " + fmtAge(q.updated_at);
       const stats = el.querySelectorAll(".tc-val");
       stats[0].textContent = fmtPct(q.return_24h_pct);
       stats[0].className = "tc-val mono num " + upDown(q.return_24h_pct ?? 0);
