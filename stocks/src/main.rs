@@ -5,14 +5,20 @@ use axum::{
     routing::get,
     Router,
 };
+use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use serde_json::Value;
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
+use tokio::sync::RwLock;
 use tokio_rusqlite::Connection;
+use tokio_tungstenite::tungstenite::Message;
 
 const FRONTEND_INDEX: &str = include_str!("frontend_index.html");
 const FRONTEND_3X: &str = include_str!("frontend_3x.html");
 
+// All 9 tickers stream live over Alpaca's free IEX WebSocket feed, which
+// allows up to 30 symbol subscriptions on the free tier -- comfortably
+// covers this list with no need to round-robin or ration requests.
 const TICKERS: &[(&str, &str)] = &[
     ("TQQQ", "ProShares UltraPro QQQ (3x Nasdaq-100)"),
     ("SOXL", "Direxion Daily Semiconductor Bull 3x"),
@@ -25,19 +31,19 @@ const TICKERS: &[(&str, &str)] = &[
     ("SQQQ", "ProShares UltraPro Short QQQ (3x inverse Nasdaq)"),
 ];
 
-// Twelve Data's free tier is 8 credits/minute, 800 credits/day, and /quote
-// costs 1 credit per symbol requested -- polling all 9 tickers in a single
-// batched call would burn 9 credits per poll (2,592/day at a 5min cadence),
-// blowing both caps in one shot. Instead we round-robin one symbol per tick:
-// 1 credit every 2 minutes = 720 credits/day, safely under both limits, with
-// each ticker refreshing roughly every 18 minutes.
-const POLL_INTERVAL: Duration = Duration::from_secs(120);
+const ALPACA_WS_URL: &str = "wss://stream.data.alpaca.markets/v2/iex";
+const ALPACA_DATA_BASE: &str = "https://data.alpaca.markets/v2";
+// The trade stream gives price ticks but not daily change, so previous
+// close is fetched separately and refreshed on this interval to track the
+// new trading day's baseline.
+const PREV_CLOSE_REFRESH: Duration = Duration::from_secs(6 * 3600);
 
 struct AppState {
     db: Connection,
     client: reqwest::Client,
-    api_key: String,
-    poll_index: std::sync::atomic::AtomicUsize,
+    key_id: String,
+    secret_key: String,
+    prev_close: RwLock<HashMap<String, f64>>,
 }
 
 #[derive(Serialize)]
@@ -63,8 +69,9 @@ struct HistoryPoint {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let api_key =
-        std::env::var("TWELVEDATA_API_KEY").expect("TWELVEDATA_API_KEY env var must be set");
+    let key_id = std::env::var("APCA_API_KEY_ID").expect("APCA_API_KEY_ID env var must be set");
+    let secret_key =
+        std::env::var("APCA_API_SECRET_KEY").expect("APCA_API_SECRET_KEY env var must be set");
     let db_path = std::env::var("DB_PATH").unwrap_or_else(|_| "/data/stocks.db".to_string());
 
     let db = Connection::open(&db_path).await?;
@@ -88,19 +95,31 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(AppState {
         db,
         client: reqwest::Client::new(),
-        api_key,
-        poll_index: std::sync::atomic::AtomicUsize::new(0),
+        key_id,
+        secret_key,
+        prev_close: RwLock::new(HashMap::new()),
     });
 
-    // background poller
     {
         let state = state.clone();
         tokio::spawn(async move {
             loop {
-                if let Err(e) = poll_quotes(&state).await {
-                    tracing::error!("poll_quotes failed: {e:#}");
+                if let Err(e) = refresh_prev_closes(&state).await {
+                    tracing::error!("refresh_prev_closes failed: {e:#}");
                 }
-                tokio::time::sleep(POLL_INTERVAL).await;
+                tokio::time::sleep(PREV_CLOSE_REFRESH).await;
+            }
+        });
+    }
+
+    {
+        let state = state.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) = run_websocket(&state).await {
+                    tracing::error!("websocket session ended: {e:#}");
+                }
+                tokio::time::sleep(Duration::from_secs(5)).await;
             }
         });
     }
@@ -126,54 +145,137 @@ async fn dashboard_3x() -> Html<&'static str> {
     Html(FRONTEND_3X)
 }
 
-fn parse_num(v: &Value) -> Option<f64> {
-    if let Some(s) = v.as_str() {
-        s.parse::<f64>().ok()
-    } else {
-        v.as_f64()
-    }
-}
+async fn refresh_prev_closes(state: &AppState) -> anyhow::Result<()> {
+    let symbols = TICKERS.iter().map(|(s, _)| *s).collect::<Vec<_>>().join(",");
+    let url = format!("{ALPACA_DATA_BASE}/stocks/snapshots?symbols={symbols}&feed=iex");
+    let resp: Value = state
+        .client
+        .get(&url)
+        .header("APCA-API-KEY-ID", &state.key_id)
+        .header("APCA-API-SECRET-KEY", &state.secret_key)
+        .send()
+        .await?
+        .json()
+        .await?;
 
-async fn poll_quotes(state: &AppState) -> anyhow::Result<()> {
-    let idx = state
-        .poll_index
-        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        % TICKERS.len();
-    let symbol = TICKERS[idx].0;
-
-    let url = format!(
-        "https://api.twelvedata.com/quote?symbol={}&apikey={}",
-        symbol, state.api_key
-    );
-    let quote: Value = state.client.get(&url).send().await?.json().await?;
-    let ts = chrono::Utc::now().timestamp();
-
-    if quote.get("status").and_then(|s| s.as_str()) == Some("error") {
-        anyhow::bail!("twelvedata error for {symbol}: {quote}");
-    }
-
-    let price = quote.get("close").and_then(parse_num);
-    let change = quote.get("change").and_then(parse_num).unwrap_or(0.0);
-    let percent_change = quote.get("percent_change").and_then(parse_num).unwrap_or(0.0);
-    let volume = quote.get("volume").and_then(parse_num).map(|v| v as i64);
-
-    let Some(price) = price else {
-        anyhow::bail!("no close price for {symbol}: {quote}");
+    let Some(obj) = resp.as_object() else {
+        anyhow::bail!("unexpected snapshots response: {resp}");
     };
 
+    let mut map = state.prev_close.write().await;
+    for (symbol, snapshot) in obj {
+        if let Some(close) = snapshot
+            .get("prevDailyBar")
+            .and_then(|b| b.get("c"))
+            .and_then(|c| c.as_f64())
+        {
+            map.insert(symbol.clone(), close);
+        }
+    }
+    tracing::info!("refreshed previous-close baseline for {} symbols", map.len());
+    Ok(())
+}
+
+async fn insert_quote(
+    state: &AppState,
+    symbol: &str,
+    price: f64,
+    change: f64,
+    percent_change: f64,
+) -> anyhow::Result<()> {
+    let ts = chrono::Utc::now().timestamp();
     let symbol = symbol.to_string();
     state
         .db
         .call(move |conn| {
             conn.execute(
-                "INSERT INTO quotes (symbol, ts, price, change, percent_change, volume) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                rusqlite::params![symbol, ts, price, change, percent_change, volume],
+                "INSERT INTO quotes (symbol, ts, price, change, percent_change, volume) VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
+                rusqlite::params![symbol, ts, price, change, percent_change],
             )?;
             Ok(())
         })
         .await?;
+    Ok(())
+}
 
-    tracing::info!("polled {} at ts={ts}", TICKERS[idx].0);
+async fn run_websocket(state: &AppState) -> anyhow::Result<()> {
+    // Make sure we have a previous-close baseline before ticks start
+    // arriving, so the very first prints can compute a real change/%.
+    if state.prev_close.read().await.is_empty() {
+        if let Err(e) = refresh_prev_closes(state).await {
+            tracing::warn!("initial prev-close fetch failed, will retry on schedule: {e:#}");
+        }
+    }
+
+    let (ws_stream, _) = tokio_tungstenite::connect_async(ALPACA_WS_URL).await?;
+    let (mut write, mut read) = ws_stream.split();
+
+    let auth = serde_json::json!({
+        "action": "auth",
+        "key": state.key_id,
+        "secret": state.secret_key,
+    });
+    write.send(Message::Text(auth.to_string())).await?;
+
+    let symbols: Vec<&str> = TICKERS.iter().map(|(s, _)| *s).collect();
+    let subscribe = serde_json::json!({
+        "action": "subscribe",
+        "trades": symbols,
+    });
+    write.send(Message::Text(subscribe.to_string())).await?;
+    tracing::info!("alpaca websocket connected, subscribed to {} symbols", symbols.len());
+
+    let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
+    ping_interval.tick().await;
+
+    loop {
+        tokio::select! {
+            msg = read.next() => {
+                let Some(msg) = msg else {
+                    anyhow::bail!("websocket stream closed");
+                };
+                match msg? {
+                    Message::Text(text) => {
+                        if let Err(e) = handle_ws_payload(state, &text).await {
+                            tracing::warn!("failed to handle ws payload: {e:#}");
+                        }
+                    }
+                    Message::Close(_) => anyhow::bail!("websocket closed by server"),
+                    _ => {}
+                }
+            }
+            _ = ping_interval.tick() => {
+                write.send(Message::Ping(vec![])).await?;
+            }
+        }
+    }
+}
+
+async fn handle_ws_payload(state: &AppState, text: &str) -> anyhow::Result<()> {
+    let events: Vec<Value> = serde_json::from_str(text)?;
+    for event in events {
+        let msg_type = event.get("T").and_then(|t| t.as_str());
+        match msg_type {
+            Some("t") => {
+                let Some(symbol) = event.get("S").and_then(|s| s.as_str()) else { continue };
+                let Some(price) = event.get("p").and_then(|p| p.as_f64()) else { continue };
+
+                let prev_close = state.prev_close.read().await.get(symbol).copied();
+                let (change, percent_change) = match prev_close {
+                    Some(prev) if prev > 0.0 => (price - prev, ((price - prev) / prev) * 100.0),
+                    _ => (0.0, 0.0),
+                };
+
+                if let Err(e) = insert_quote(state, symbol, price, change, percent_change).await {
+                    tracing::warn!("failed to record trade tick for {symbol}: {e:#}");
+                }
+            }
+            Some("error") => {
+                tracing::warn!("alpaca ws error event: {event}");
+            }
+            _ => {}
+        }
+    }
     Ok(())
 }
 
