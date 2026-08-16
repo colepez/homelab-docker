@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>3x // pezzitools stocks</title>
+<style>
+  :root {
+    --bg: #0a0e14;
+    --bg-alt: #0d1219;
+    --surface: #10161f;
+    --surface-hi: #141c27;
+    --border: #1c2530;
+    --border-hi: #26323f;
+    --text: #e6edf3;
+    --text-dim: #7d8590;
+    --text-faint: #4b5563;
+    --accent: #00e5ff;
+    --accent-dim: #00e5ff33;
+    --up: #39d98a;
+    --up-dim: #39d98a1f;
+    --down: #ff5c72;
+    --down-dim: #ff5c721f;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(1200px 600px at 15% -10%, #0d2230 0%, transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, #12202a 0%, transparent 55%),
+      var(--bg);
+    background-attachment: fixed;
+    color: var(--text);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 64px 64px;
+    opacity: 0.35;
+    mask-image: linear-gradient(to bottom, black, transparent 85%);
+  }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, "SF Mono", monospace; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  .topbar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(10, 14, 20, 0.72);
+    backdrop-filter: blur(6px);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand .mark {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-weight: 600;
+    font-size: 1.05rem;
+    letter-spacing: 0.02em;
+  }
+  .brand .mark span { color: var(--accent); }
+  .brand .sub {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .topbar-right { display: flex; align-items: center; gap: 18px; }
+  .clock {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--up);
+    border: 1px solid var(--up-dim);
+    background: var(--up-dim);
+    padding: 5px 10px 5px 8px;
+    border-radius: 999px;
+  }
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--up);
+    box-shadow: 0 0 8px var(--up);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .status-dot { animation: pulse 2s ease-in-out infinite; }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+
+  main { max-width: 1280px; margin: 0 auto; padding: 28px; position: relative; }
+
+  .sentiment {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 28px;
+  }
+  .sent-stat {
+    background: var(--surface);
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .sent-label {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .sent-val {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 1.15rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .sent-val.up { color: var(--up); }
+  .sent-val.down { color: var(--down); }
+
+  .section-label {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin: 0 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-label::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+  }
+
+  .ticker-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px 20px;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+  }
+  .ticker-card:hover {
+    border-color: var(--border-hi);
+    transform: translateY(-1px);
+  }
+  .tc-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 2px;
+  }
+  .tc-symbol {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-weight: 600;
+    font-size: 1.05rem;
+    letter-spacing: 0.02em;
+  }
+  .tc-badge {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+  .tc-badge.up { color: var(--up); background: var(--up-dim); }
+  .tc-badge.down { color: var(--down); background: var(--down-dim); }
+  .tc-name {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    margin-bottom: 14px;
+    min-height: 1.2em;
+  }
+  .tc-price {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 1.9rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    margin-bottom: 10px;
+  }
+  .tc-spark { display: block; width: 100%; height: 48px; margin-bottom: 12px; }
+  .tc-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+  }
+  .tc-stats > div { display: flex; flex-direction: column; gap: 3px; }
+  .tc-label {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .tc-val {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+  .tc-val.up { color: var(--up); }
+  .tc-val.down { color: var(--down); }
+
+  .skeleton { opacity: 0.4; }
+  .skeleton .tc-price::after { content: "—"; }
+
+  footer {
+    max-width: 1280px;
+    margin: 8px auto 40px;
+    padding: 0 28px;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+  }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark">pezzitools<span>::</span>stocks<span>/3x</span></span>
+      <span class="sub">leveraged etf terminal</span>
+    </div>
+    <div class="topbar-right">
+      <span class="clock mono num" id="clock">--:--:--</span>
+      <span class="status-pill"><span class="status-dot"></span><span id="status-text">live</span></span>
+    </div>
+  </header>
+
+  <main>
+    <div class="sentiment" id="sentiment">
+      <div class="sent-stat">
+        <span class="sent-label">Avg 24h return</span>
+        <span class="sent-val mono num" id="sent-avg">--</span>
+      </div>
+      <div class="sent-stat">
+        <span class="sent-label">Top mover</span>
+        <span class="sent-val mono num" id="sent-top">--</span>
+      </div>
+      <div class="sent-stat">
+        <span class="sent-label">Tracked tickers</span>
+        <span class="sent-val mono num" id="sent-count">--</span>
+      </div>
+      <div class="sent-stat">
+        <span class="sent-label">Next poll</span>
+        <span class="sent-val mono num" id="sent-next">--</span>
+      </div>
+    </div>
+
+    <p class="section-label">3x leveraged funds</p>
+    <div class="grid" id="grid"></div>
+  </main>
+
+  <footer>
+    quotes via twelvedata &middot; polled every 5min, refreshed here every 30s &middot; <a href="/stocks">&larr; back to stocks</a>
+  </footer>
+
+<script>
+const TICKERS = ["TQQQ","SOXL","UPRO","SPXL","TNA","FAS","TECL","LABU","SQQQ"];
+const grid = document.getElementById("grid");
+const cardEls = {};
+const sparkData = {};
+
+function fmtPct(v) {
+  if (v === null || v === undefined) return "—";
+  const sign = v > 0 ? "+" : "";
+  return `${sign}${v.toFixed(2)}%`;
+}
+function fmtPrice(v) {
+  return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtVol(v) {
+  if (v === null || v === undefined) return "—";
+  if (v >= 1e9) return (v / 1e9).toFixed(2) + "B";
+  if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
+  if (v >= 1e3) return (v / 1e3).toFixed(1) + "K";
+  return String(v);
+}
+function upDown(v) { return v > 0 ? "up" : v < 0 ? "down" : ""; }
+
+function makeSkeleton(symbol) {
+  const el = document.createElement("article");
+  el.className = "ticker-card skeleton";
+  el.dataset.symbol = symbol;
+  el.innerHTML = `
+    <div class="tc-head">
+      <span class="tc-symbol mono">${symbol}</span>
+      <span class="tc-badge mono">--</span>
+    </div>
+    <div class="tc-name">loading&hellip;</div>
+    <div class="tc-price mono num"></div>
+    <canvas class="tc-spark" width="240" height="48"></canvas>
+    <div class="tc-stats">
+      <div><span class="tc-label">24h</span><span class="tc-val mono num">--</span></div>
+      <div><span class="tc-label">Since tracked</span><span class="tc-val mono num">--</span></div>
+      <div><span class="tc-label">Vol</span><span class="tc-val mono num">--</span></div>
+    </div>
+  `;
+  grid.appendChild(el);
+  cardEls[symbol] = el;
+}
+TICKERS.forEach(makeSkeleton);
+
+function drawSpark(canvas, points, positive) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  if (!points || points.length < 2) return;
+  const prices = points.map(p => p.price);
+  const min = Math.min(...prices), max = Math.max(...prices);
+  const range = max - min || 1;
+  const stepX = w / (points.length - 1);
+  const color = positive ? "#39d98a" : "#ff5c72";
+
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const x = i * stepX;
+    const y = h - ((p.price - min) / range) * (h - 6) - 3;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  const lastY = h - ((prices[prices.length - 1] - min) / range) * (h - 6) - 3;
+  ctx.lineTo(w, lastY);
+  ctx.lineTo(w, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fillStyle = color + "22";
+  ctx.fill();
+
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const x = i * stepX;
+    const y = h - ((p.price - min) / range) * (h - 6) - 3;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  const lastX = (points.length - 1) * stepX;
+  ctx.beginPath();
+  ctx.arc(lastX, lastY, 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+async function loadHistory(symbol) {
+  try {
+    const res = await fetch(`/stocks/3x/api/history/${symbol}`);
+    if (!res.ok) return;
+    sparkData[symbol] = await res.json();
+    const el = cardEls[symbol];
+    if (el) {
+      const canvas = el.querySelector(".tc-spark");
+      const positive = (sparkData[symbol].at(-1)?.price ?? 0) >= (sparkData[symbol][0]?.price ?? 0);
+      drawSpark(canvas, sparkData[symbol], positive);
+    }
+  } catch (e) { /* transient network error, next poll retries */ }
+}
+
+async function loadQuotes() {
+  try {
+    const res = await fetch("/stocks/3x/api/quotes");
+    if (!res.ok) throw new Error("bad response");
+    const quotes = await res.json();
+    document.getElementById("status-text").textContent = "live";
+
+    if (quotes.length) {
+      const avg24h = quotes.reduce((a, q) => a + (q.return_24h_pct ?? 0), 0) / quotes.length;
+      const top = quotes.reduce((a, b) => (b.percent_change > a.percent_change ? b : a));
+      document.getElementById("sent-avg").textContent = fmtPct(avg24h);
+      document.getElementById("sent-avg").className = "sent-val mono num " + upDown(avg24h);
+      document.getElementById("sent-top").textContent = `${top.symbol} ${fmtPct(top.percent_change)}`;
+      document.getElementById("sent-top").className = "sent-val mono num " + upDown(top.percent_change);
+      document.getElementById("sent-count").textContent = quotes.length;
+    }
+
+    quotes.forEach(q => {
+      const el = cardEls[q.symbol];
+      if (!el) return;
+      el.classList.remove("skeleton");
+      el.querySelector(".tc-badge").textContent = fmtPct(q.percent_change);
+      el.querySelector(".tc-badge").className = "tc-badge mono num " + upDown(q.percent_change);
+      el.querySelector(".tc-name").textContent = q.name;
+      el.querySelector(".tc-price").textContent = fmtPrice(q.price);
+      const stats = el.querySelectorAll(".tc-val");
+      stats[0].textContent = fmtPct(q.return_24h_pct);
+      stats[0].className = "tc-val mono num " + upDown(q.return_24h_pct ?? 0);
+      stats[1].textContent = fmtPct(q.return_since_tracked_pct);
+      stats[1].className = "tc-val mono num " + upDown(q.return_since_tracked_pct ?? 0);
+      stats[2].textContent = fmtVol(q.volume);
+    });
+  } catch (e) {
+    document.getElementById("status-text").textContent = "reconnecting";
+  }
+}
+
+function tickClock() {
+  document.getElementById("clock").textContent = new Date().toLocaleTimeString(undefined, { hour12: false });
+}
+let nextPollAt = Date.now() + 30_000;
+function tickNextPoll() {
+  const secs = Math.max(0, Math.round((nextPollAt - Date.now()) / 1000));
+  document.getElementById("sent-next").textContent = `${secs}s`;
+}
+
+tickClock();
+setInterval(tickClock, 1000);
+setInterval(tickNextPoll, 1000);
+
+loadQuotes();
+TICKERS.forEach(loadHistory);
+
+setInterval(() => {
+  loadQuotes();
+  nextPollAt = Date.now() + 30_000;
+}, 30_000);
+setInterval(() => TICKERS.forEach(loadHistory), 60_000);
+</script>
+</body>
+</html>

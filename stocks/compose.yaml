@@ -1,0 +1,19 @@
+services:
+  stocks:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stocks
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+      - TWELVEDATA_API_KEY=${TWELVEDATA_API_KEY}
+    volumes:
+      - /srv/docker/stocks/data:/data
+    networks:
+      - edge
+
+networks:
+  edge:
+    name: edge
+    external: true

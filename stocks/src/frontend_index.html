@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>pezzitools // stocks</title>
+<style>
+  :root {
+    --bg: #0a0e14;
+    --surface: #10161f;
+    --border: #1c2530;
+    --text: #e6edf3;
+    --text-dim: #7d8590;
+    --accent: #00e5ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: center;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 48px 56px;
+    text-align: center;
+    max-width: 420px;
+  }
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 12px;
+  }
+  h1 {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 1.9rem;
+    margin: 0 0 14px;
+    text-wrap: balance;
+  }
+  p {
+    color: var(--text-dim);
+    line-height: 1.6;
+    margin: 0 0 28px;
+    font-size: 0.95rem;
+  }
+  a.button {
+    display: inline-block;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+    text-decoration: none;
+    color: var(--bg);
+    background: var(--accent);
+    padding: 12px 22px;
+    border-radius: 3px;
+    transition: filter 0.15s ease;
+  }
+  a.button:hover, a.button:focus-visible { filter: brightness(1.12); }
+  a.button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <p class="eyebrow">pezzitools / market data</p>
+    <h1>Live leveraged-ETF tracking</h1>
+    <p>Real-time quotes and running returns for the major 3x-leveraged funds, polled continuously and stored for trend history.</p>
+    <a class="button" href="/stocks/3x">Open 3x dashboard &rarr;</a>
+  </div>
+</body>
+</html>
