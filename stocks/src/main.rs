@@ -162,17 +162,82 @@ async fn refresh_prev_closes(state: &AppState) -> anyhow::Result<()> {
         anyhow::bail!("unexpected snapshots response: {resp}");
     };
 
-    let mut map = state.prev_close.write().await;
-    for (symbol, snapshot) in obj {
-        if let Some(close) = snapshot
-            .get("prevDailyBar")
-            .and_then(|b| b.get("c"))
-            .and_then(|c| c.as_f64())
-        {
-            map.insert(symbol.clone(), close);
+    // Collect everything we need from the response first, then update the
+    // shared map and touch the DB without holding the write lock across
+    // those awaits (which would otherwise block the WS handler's reads for
+    // the whole loop).
+    struct Seed<'a> {
+        symbol: &'a str,
+        close: f64,
+        price: Option<f64>,
+        volume: Option<i64>,
+    }
+    let seeds: Vec<Seed> = obj
+        .iter()
+        .filter_map(|(symbol, snapshot)| {
+            let close = snapshot
+                .get("prevDailyBar")
+                .and_then(|b| b.get("c"))
+                .and_then(|c| c.as_f64())?;
+            let price = snapshot
+                .get("latestTrade")
+                .and_then(|t| t.get("p"))
+                .and_then(|p| p.as_f64());
+            let volume = snapshot
+                .get("dailyBar")
+                .and_then(|b| b.get("v"))
+                .and_then(|v| v.as_i64());
+            Some(Seed { symbol, close, price, volume })
+        })
+        .collect();
+
+    {
+        let mut map = state.prev_close.write().await;
+        for seed in &seeds {
+            map.insert(seed.symbol.to_string(), seed.close);
         }
     }
-    tracing::info!("refreshed previous-close baseline for {} symbols", map.len());
+
+    let mut seeded = 0;
+    for seed in &seeds {
+        let already_tracked = state
+            .db
+            .call({
+                let symbol = seed.symbol.to_string();
+                move |conn| {
+                    let exists: i64 = conn.query_row(
+                        "SELECT COUNT(*) FROM quotes WHERE symbol = ?1",
+                        rusqlite::params![symbol],
+                        |r| r.get(0),
+                    )?;
+                    Ok::<_, tokio_rusqlite::Error>(exists > 0)
+                }
+            })
+            .await
+            .unwrap_or(false);
+        if already_tracked {
+            continue;
+        }
+
+        // Seed a quote row from the last trade so the dashboard has real
+        // data immediately, rather than sitting empty until the next live
+        // tick (which only arrives during market hours).
+        let Some(price) = seed.price else { continue };
+        let change = price - seed.close;
+        let percent_change = if seed.close > 0.0 { (change / seed.close) * 100.0 } else { 0.0 };
+        if let Err(e) =
+            insert_quote_with_volume(state, seed.symbol, price, change, percent_change, seed.volume).await
+        {
+            tracing::warn!("failed to seed quote for {}: {e:#}", seed.symbol);
+        } else {
+            seeded += 1;
+        }
+    }
+
+    if seeded > 0 {
+        tracing::info!("seeded {seeded} initial quotes from last-trade snapshot");
+    }
+    tracing::info!("refreshed previous-close baseline for {} symbols", seeds.len());
     Ok(())
 }
 
@@ -183,14 +248,25 @@ async fn insert_quote(
     change: f64,
     percent_change: f64,
 ) -> anyhow::Result<()> {
+    insert_quote_with_volume(state, symbol, price, change, percent_change, None).await
+}
+
+async fn insert_quote_with_volume(
+    state: &AppState,
+    symbol: &str,
+    price: f64,
+    change: f64,
+    percent_change: f64,
+    volume: Option<i64>,
+) -> anyhow::Result<()> {
     let ts = chrono::Utc::now().timestamp();
     let symbol = symbol.to_string();
     state
         .db
         .call(move |conn| {
             conn.execute(
-                "INSERT INTO quotes (symbol, ts, price, change, percent_change, volume) VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
-                rusqlite::params![symbol, ts, price, change, percent_change],
+                "INSERT INTO quotes (symbol, ts, price, change, percent_change, volume) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![symbol, ts, price, change, percent_change, volume],
             )?;
             Ok(())
         })
