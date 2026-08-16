@@ -1,0 +1,32 @@
+services: {}
+  # Migrated from oraclevm 2026-08-16, deliberately commented out so this
+  # stack deploys with nothing running. Uncomment (and change `services: {}`
+  # back to `services:`) to bring it up.
+  # factorio:
+  #   image: factoriotools/factorio:2.0.72
+  #   container_name: factorio
+  #   restart: unless-stopped
+  #   networks:
+  #     - edge
+  #   ports:
+  #     - "127.0.0.1:27015:27015/tcp"   # RCON, loopback only — reach via SSH tunnel
+  #   volumes:
+  #     - /srv/docker/game-servers/factorio/data:/factorio
+  #   environment:
+  #     - FACTORIO_USERNAME=${FACTORIO_USERNAME}
+  #     - FACTORIO_TOKEN=${FACTORIO_TOKEN}
+  #     - SAVE_NAME=${SAVE_NAME}
+  #     - GENERATE_NEW_SAVE=false        # a save already exists from the migrated data
+  #     - LOAD_LATEST_SAVE=true
+  #     - SERVER_NAME=${SERVER_NAME}
+  #     - SERVER_DESCRIPTION=${SERVER_DESC}
+  #     - MAX_PLAYERS=${MAX_PLAYERS}
+  #     - GAME_PASSWORD=${GAME_PASSWORD}
+  #     - RCON_ENABLED=true
+  #     - RCON_PORT=27015
+  #     - RCON_PASSWORD=${RCON_PASSWORD}
+  #     - UPDATE_MODS_ON_START=true
+
+networks:
+  edge:
+    external: true
