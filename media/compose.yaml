@@ -31,6 +31,13 @@ services:
       - PEERPORT=${TRANSMISSION_PEER_PORT}
     volumes:
       - /srv/docker/media/transmission/data:/config
+      # downloads stage on local disk, not NFS - Transmission's constant
+      # write-then-hash-verify cycle during active downloading was silently
+      # failing every single piece verification over the /mnt/media NFS
+      # mount (likely a read-after-write cache consistency issue), even
+      # though bytes were genuinely landing on disk. Local disk sidesteps
+      # this; Sonarr/Radarr still see /mnt/media for the final library.
+      - /srv/docker/media/downloads-local:/downloads
       - /mnt/media:/mnt/media
 
   prowlarr:
@@ -56,6 +63,9 @@ services:
       - TZ=${TZ}
     volumes:
       - /srv/docker/media/sonarr/data:/config
+      # same local downloads mount as transmission, at the same container
+      # path, so Sonarr can see and import files transmission reports
+      - /srv/docker/media/downloads-local:/downloads
       - /mnt/media:/mnt/media
     networks:
       - edge
@@ -70,6 +80,9 @@ services:
       - TZ=${TZ}
     volumes:
       - /srv/docker/media/radarr/data:/config
+      # same local downloads mount as transmission, at the same container
+      # path, so Radarr can see and import files transmission reports
+      - /srv/docker/media/downloads-local:/downloads
       - /mnt/media:/mnt/media
     networks:
       - edge
