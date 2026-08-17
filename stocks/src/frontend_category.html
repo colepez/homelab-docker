@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title id="page-title">pezzitools // stocks</title>
+<link rel="stylesheet" href="/stocks/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <a href="/stocks"><span class="mark">pezzitools<span>::</span>stocks</span></a>
+      <span class="sub">leveraged etf terminal</span>
+    </div>
+    <div class="topbar-right">
+      <span class="clock mono num" id="clock">--:--:--</span>
+      <span class="market-countdown mono num" id="market-countdown">--</span>
+      <span class="status-pill" id="market-pill"><span class="status-dot"></span><span id="market-text">--</span></span>
+    </div>
+  </header>
+
+  <main>
+    <nav class="nav-links" id="nav-links"></nav>
+    <div class="breadcrumb"><a href="/stocks">&larr; All categories</a></div>
+
+    <div class="sentiment" id="sentiment">
+      <div class="sent-stat">
+        <span class="sent-label">Avg 24h return</span>
+        <span class="sent-val mono num" id="sent-avg">--</span>
+      </div>
+      <div class="sent-stat">
+        <span class="sent-label">Top mover</span>
+        <span class="sent-val mono num" id="sent-top">--</span>
+      </div>
+      <div class="sent-stat">
+        <span class="sent-label">Funds tracked</span>
+        <span class="sent-val mono num" id="sent-count">--</span>
+      </div>
+      <div class="sent-stat">
+        <span class="sent-label">Dashboard refresh</span>
+        <span class="sent-val mono num" id="sent-next">--</span>
+      </div>
+    </div>
+
+    <p class="section-label" id="category-label">Loading&hellip;</p>
+    <div class="grid" id="grid"></div>
+  </main>
+
+  <footer>
+    quotes via alpaca (iex feed), polled every 2min &middot; dashboard re-checks every 30s &middot; <a href="/stocks/movers">view returns &amp; movers &rarr;</a>
+  </footer>
+
+<script src="/stocks/app.js"></script>
+<script>
+const slug = location.pathname.split("/").filter(Boolean).pop();
+const cardEls = {};
+const sparkData = {};
+let tickers = [];
+
+function makeSkeleton(ticker, gridEl) {
+  const el = document.createElement("article");
+  el.className = "ticker-card skeleton";
+  el.dataset.symbol = ticker.symbol;
+  el.innerHTML = `
+    <div class="tc-head">
+      <span class="tc-head-left">
+        <span class="tc-symbol mono">${ticker.symbol}</span>
+        <span class="direction-tag mono ${ticker.inverse ? "inverse" : "bull"}">${leverageTag(ticker)}</span>
+      </span>
+      <span class="tc-badge mono">--</span>
+    </div>
+    <div class="tc-name">${ticker.name}</div>
+    <div class="tc-price mono num"></div>
+    <div class="tc-updated mono">--</div>
+    <canvas class="tc-spark" width="240" height="48"></canvas>
+    <div class="tc-stats">
+      <div><span class="tc-label">24h</span><span class="tc-val mono num">--</span></div>
+      <div><span class="tc-label">Since tracked</span><span class="tc-val mono num">--</span></div>
+      <div><span class="tc-label">Vol</span><span class="tc-val mono num">--</span></div>
+    </div>
+  `;
+  gridEl.appendChild(el);
+  cardEls[ticker.symbol] = el;
+}
+
+async function loadHistory(symbol) {
+  try {
+    const res = await fetch(`/stocks/api/history/${symbol}`);
+    if (!res.ok) return;
+    sparkData[symbol] = await res.json();
+    const el = cardEls[symbol];
+    if (el) {
+      const canvas = el.querySelector(".tc-spark");
+      const positive = (sparkData[symbol].at(-1)?.price ?? 0) >= (sparkData[symbol][0]?.price ?? 0);
+      drawSpark(canvas, sparkData[symbol], positive);
+    }
+  } catch (e) { /* transient network error, next poll retries */ }
+}
+
+async function loadQuotes() {
+  try {
+    const res = await fetch("/stocks/api/quotes");
+    if (!res.ok) throw new Error("bad response");
+    const allQuotes = await res.json();
+    const symbols = new Set(tickers.map(t => t.symbol));
+    const quotes = allQuotes.filter(q => symbols.has(q.symbol));
+
+    if (quotes.length) {
+      const avg24h = quotes.reduce((a, q) => a + (q.return_24h_pct ?? 0), 0) / quotes.length;
+      const top = quotes.reduce((a, b) => (Math.abs(b.percent_change) > Math.abs(a.percent_change) ? b : a));
+      document.getElementById("sent-avg").textContent = fmtPct(avg24h);
+      document.getElementById("sent-avg").className = "sent-val mono num " + upDown(avg24h);
+      document.getElementById("sent-top").textContent = `${top.symbol} ${fmtPct(top.percent_change)}`;
+      document.getElementById("sent-top").className = "sent-val mono num " + upDown(top.percent_change);
+      document.getElementById("sent-count").textContent = quotes.length;
+    }
+
+    quotes.forEach(q => {
+      const el = cardEls[q.symbol];
+      if (!el) return;
+      el.classList.remove("skeleton");
+      el.querySelector(".tc-badge").textContent = fmtPct(q.percent_change);
+      el.querySelector(".tc-badge").className = "tc-badge mono num " + upDown(q.percent_change);
+      el.querySelector(".tc-price").textContent = fmtPrice(q.price);
+      el.querySelector(".tc-updated").textContent = "updated " + fmtAge(q.updated_at);
+      const stats = el.querySelectorAll(".tc-val");
+      stats[0].textContent = fmtPct(q.return_24h_pct);
+      stats[0].className = "tc-val mono num " + upDown(q.return_24h_pct ?? 0);
+      stats[1].textContent = fmtPct(q.return_since_tracked_pct);
+      stats[1].className = "tc-val mono num " + upDown(q.return_since_tracked_pct ?? 0);
+      stats[2].textContent = fmtVol(q.volume);
+    });
+  } catch (e) { /* transient network error, next poll retries */ }
+}
+
+let nextPollAt = Date.now() + 30_000;
+function tickNextPoll() {
+  const secs = Math.max(0, Math.round((nextPollAt - Date.now()) / 1000));
+  document.getElementById("sent-next").textContent = `${secs}s`;
+}
+setInterval(tickNextPoll, 1000);
+
+async function init() {
+  const categories = await fetchCategories();
+  const nav = document.getElementById("nav-links");
+  nav.innerHTML = `<a href="/stocks">Home</a>` +
+    categories.map(c => `<a href="/stocks/${c.slug}" class="${c.slug === slug ? "active" : ""}">${c.label}</a>`).join("") +
+    `<a href="/stocks/movers">Movers</a>`;
+
+  const cat = categories.find(c => c.slug === slug);
+  if (!cat) return;
+  document.getElementById("page-title").textContent = `${cat.label} // pezzitools stocks`;
+  document.getElementById("category-label").textContent = cat.label;
+  tickers = cat.tickers;
+
+  const grid = document.getElementById("grid");
+  tickers.forEach(t => makeSkeleton(t, grid));
+
+  loadQuotes();
+  tickers.forEach(t => loadHistory(t.symbol));
+
+  setInterval(() => {
+    loadQuotes();
+    nextPollAt = Date.now() + 30_000;
+  }, 30_000);
+  setInterval(() => tickers.forEach(t => loadHistory(t.symbol)), 60_000);
+}
+init();
+</script>
+</body>
+</html>

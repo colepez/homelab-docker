@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{header, StatusCode},
     response::{Html, IntoResponse, Json},
     routing::get,
     Router,
@@ -11,43 +11,48 @@ use std::{sync::Arc, time::Duration};
 use tokio_rusqlite::Connection;
 
 const FRONTEND_INDEX: &str = include_str!("frontend_index.html");
-const FRONTEND_3X: &str = include_str!("frontend_3x.html");
+const FRONTEND_HUB: &str = include_str!("frontend_hub.html");
+const FRONTEND_CATEGORY: &str = include_str!("frontend_category.html");
+const FRONTEND_MOVERS: &str = include_str!("frontend_movers.html");
+const STYLE_CSS: &str = include_str!("style.css");
+const APP_JS: &str = include_str!("app.js");
 
+// (symbol, name, category_slug, category_label, leverage, inverse)
 // Every 2x/3x leveraged bull fund paired with its inverse, grouped by
 // underlying index/sector. Some 2x bear products (semiconductors,
 // financials, technology, biotech) trade extremely thin volume -- real and
 // valid, just illiquid; included anyway for full coverage.
-const TICKERS: &[(&str, &str)] = &[
-    ("TQQQ", "ProShares UltraPro QQQ (3x Nasdaq-100)"),
-    ("SQQQ", "ProShares UltraPro Short QQQ (3x inverse Nasdaq-100)"),
-    ("QLD", "ProShares Ultra QQQ (2x Nasdaq-100)"),
-    ("QID", "ProShares UltraShort QQQ (2x inverse Nasdaq-100)"),
-    ("UPRO", "ProShares UltraPro S&P 500 (3x)"),
-    ("SPXU", "ProShares UltraPro Short S&P 500 (3x inverse)"),
-    ("SSO", "ProShares Ultra S&P 500 (2x)"),
-    ("SDS", "ProShares UltraShort S&P 500 (2x inverse)"),
-    ("SPXL", "Direxion Daily S&P 500 Bull 3x"),
-    ("SPXS", "Direxion Daily S&P 500 Bear 3x"),
-    ("TNA", "Direxion Daily Small Cap Bull 3x"),
-    ("TZA", "Direxion Daily Small Cap Bear 3x"),
-    ("UWM", "ProShares Ultra Russell2000 (2x)"),
-    ("TWM", "ProShares UltraShort Russell2000 (2x inverse)"),
-    ("SOXL", "Direxion Daily Semiconductor Bull 3x"),
-    ("SOXS", "Direxion Daily Semiconductor Bear 3x"),
-    ("USD", "Direxion Daily Semiconductor Bull 2x"),
-    ("SSG", "ProShares UltraShort Semiconductors (2x inverse)"),
-    ("FAS", "Direxion Daily Financial Bull 3x"),
-    ("FAZ", "Direxion Daily Financial Bear 3x"),
-    ("UYG", "ProShares Ultra Financials (2x)"),
-    ("SKF", "ProShares UltraShort Financials (2x inverse)"),
-    ("TECL", "Direxion Daily Technology Bull 3x"),
-    ("TECS", "Direxion Daily Technology Bear 3x"),
-    ("ROM", "ProShares Ultra Technology (2x)"),
-    ("REW", "ProShares UltraShort Technology (2x inverse)"),
-    ("LABU", "Direxion Daily S&P Biotech Bull 3x"),
-    ("LABD", "Direxion Daily S&P Biotech Bear 3x"),
-    ("BIB", "ProShares Ultra Nasdaq Biotechnology (2x)"),
-    ("BIS", "ProShares UltraShort Nasdaq Biotechnology (2x inverse)"),
+const TICKERS: &[(&str, &str, &str, &str, i32, bool)] = &[
+    ("TQQQ", "ProShares UltraPro QQQ", "nasdaq-100", "Nasdaq-100", 3, false),
+    ("SQQQ", "ProShares UltraPro Short QQQ", "nasdaq-100", "Nasdaq-100", 3, true),
+    ("QLD", "ProShares Ultra QQQ", "nasdaq-100", "Nasdaq-100", 2, false),
+    ("QID", "ProShares UltraShort QQQ", "nasdaq-100", "Nasdaq-100", 2, true),
+    ("UPRO", "ProShares UltraPro S&P 500", "sp500", "S&P 500", 3, false),
+    ("SPXU", "ProShares UltraPro Short S&P 500", "sp500", "S&P 500", 3, true),
+    ("SSO", "ProShares Ultra S&P 500", "sp500", "S&P 500", 2, false),
+    ("SDS", "ProShares UltraShort S&P 500", "sp500", "S&P 500", 2, true),
+    ("SPXL", "Direxion Daily S&P 500 Bull", "sp500", "S&P 500", 3, false),
+    ("SPXS", "Direxion Daily S&P 500 Bear", "sp500", "S&P 500", 3, true),
+    ("TNA", "Direxion Daily Small Cap Bull", "small-cap", "Small Cap \u{b7} Russell 2000", 3, false),
+    ("TZA", "Direxion Daily Small Cap Bear", "small-cap", "Small Cap \u{b7} Russell 2000", 3, true),
+    ("UWM", "ProShares Ultra Russell2000", "small-cap", "Small Cap \u{b7} Russell 2000", 2, false),
+    ("TWM", "ProShares UltraShort Russell2000", "small-cap", "Small Cap \u{b7} Russell 2000", 2, true),
+    ("SOXL", "Direxion Daily Semiconductor Bull", "semiconductors", "Semiconductors", 3, false),
+    ("SOXS", "Direxion Daily Semiconductor Bear", "semiconductors", "Semiconductors", 3, true),
+    ("USD", "Direxion Daily Semiconductor Bull", "semiconductors", "Semiconductors", 2, false),
+    ("SSG", "ProShares UltraShort Semiconductors", "semiconductors", "Semiconductors", 2, true),
+    ("FAS", "Direxion Daily Financial Bull", "financials", "Financials", 3, false),
+    ("FAZ", "Direxion Daily Financial Bear", "financials", "Financials", 3, true),
+    ("UYG", "ProShares Ultra Financials", "financials", "Financials", 2, false),
+    ("SKF", "ProShares UltraShort Financials", "financials", "Financials", 2, true),
+    ("TECL", "Direxion Daily Technology Bull", "technology", "Technology", 3, false),
+    ("TECS", "Direxion Daily Technology Bear", "technology", "Technology", 3, true),
+    ("ROM", "ProShares Ultra Technology", "technology", "Technology", 2, false),
+    ("REW", "ProShares UltraShort Technology", "technology", "Technology", 2, true),
+    ("LABU", "Direxion Daily S&P Biotech Bull", "biotech", "Biotech", 3, false),
+    ("LABD", "Direxion Daily S&P Biotech Bear", "biotech", "Biotech", 3, true),
+    ("BIB", "ProShares Ultra Nasdaq Biotechnology", "biotech", "Biotech", 2, false),
+    ("BIS", "ProShares UltraShort Nasdaq Biotechnology", "biotech", "Biotech", 2, true),
 ];
 
 const ALPACA_DATA_BASE: &str = "https://data.alpaca.markets/v2";
@@ -78,7 +83,6 @@ struct ReturnsCache {
 #[derive(Serialize, Clone)]
 struct ReturnsOut {
     symbol: String,
-    name: String,
     week_pct: Option<f64>,
     month_pct: Option<f64>,
     six_month_pct: Option<f64>,
@@ -87,7 +91,6 @@ struct ReturnsOut {
 #[derive(Serialize)]
 struct QuoteOut {
     symbol: String,
-    name: String,
     price: f64,
     change: f64,
     percent_change: f64,
@@ -101,6 +104,21 @@ struct QuoteOut {
 struct HistoryPoint {
     ts: i64,
     price: f64,
+}
+
+#[derive(Serialize)]
+struct TickerMeta {
+    symbol: String,
+    name: String,
+    leverage: i32,
+    inverse: bool,
+}
+
+#[derive(Serialize)]
+struct CategoryOut {
+    slug: String,
+    label: String,
+    tickers: Vec<TickerMeta>,
 }
 
 #[tokio::main]
@@ -177,10 +195,14 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/stocks", get(index))
-        .route("/stocks/3x", get(dashboard_3x))
-        .route("/stocks/3x/api/quotes", get(api_quotes))
-        .route("/stocks/3x/api/history/:symbol", get(api_history))
-        .route("/stocks/3x/api/returns", get(api_returns))
+        .route("/stocks/movers", get(movers_page))
+        .route("/stocks/style.css", get(stylesheet))
+        .route("/stocks/app.js", get(app_js))
+        .route("/stocks/api/categories", get(api_categories))
+        .route("/stocks/api/quotes", get(api_quotes))
+        .route("/stocks/api/history/:symbol", get(api_history))
+        .route("/stocks/api/returns", get(api_returns))
+        .route("/stocks/:category", get(category_page))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
@@ -190,11 +212,49 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn index() -> Html<&'static str> {
-    Html(FRONTEND_INDEX)
+    Html(FRONTEND_HUB)
 }
 
-async fn dashboard_3x() -> Html<&'static str> {
-    Html(FRONTEND_3X)
+async fn movers_page() -> Html<&'static str> {
+    Html(FRONTEND_MOVERS)
+}
+
+async fn stylesheet() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "text/css; charset=utf-8")], STYLE_CSS)
+}
+
+async fn app_js() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "application/javascript; charset=utf-8")], APP_JS)
+}
+
+async fn category_page(Path(category): Path<String>) -> impl IntoResponse {
+    if TICKERS.iter().any(|t| t.2 == category) {
+        (StatusCode::OK, Html(FRONTEND_CATEGORY)).into_response()
+    } else {
+        (StatusCode::NOT_FOUND, Html(FRONTEND_INDEX)).into_response()
+    }
+}
+
+async fn api_categories() -> impl IntoResponse {
+    let mut categories: Vec<CategoryOut> = Vec::new();
+    for (symbol, name, slug, label, leverage, inverse) in TICKERS {
+        let entry = categories.iter_mut().find(|c| c.slug == *slug);
+        let meta = TickerMeta {
+            symbol: symbol.to_string(),
+            name: name.to_string(),
+            leverage: *leverage,
+            inverse: *inverse,
+        };
+        match entry {
+            Some(c) => c.tickers.push(meta),
+            None => categories.push(CategoryOut {
+                slug: slug.to_string(),
+                label: label.to_string(),
+                tickers: vec![meta],
+            }),
+        }
+    }
+    Json(categories)
 }
 
 fn parse_num(v: &Value) -> Option<f64> {
@@ -209,7 +269,7 @@ fn parse_num(v: &Value) -> Option<f64> {
 // Each snapshot carries its own previous-close, so change/% is computed
 // fresh each poll with no separate cached baseline needed.
 async fn poll_quotes(state: &AppState) -> anyhow::Result<()> {
-    let symbols = TICKERS.iter().map(|(s, _)| *s).collect::<Vec<_>>().join(",");
+    let symbols = TICKERS.iter().map(|(s, ..)| *s).collect::<Vec<_>>().join(",");
     let url = format!("{ALPACA_DATA_BASE}/stocks/snapshots?symbols={symbols}&feed=iex");
     let resp: Value = state
         .client
@@ -284,7 +344,7 @@ async fn prune_old_quotes(state: &AppState) -> anyhow::Result<()> {
 // Prices must be split-adjusted (adjustment=split) or a leveraged inverse
 // fund's reverse split reads as an enormous fake gain.
 async fn refresh_returns(state: &AppState) -> anyhow::Result<()> {
-    let symbols = TICKERS.iter().map(|(s, _)| *s).collect::<Vec<_>>().join(",");
+    let symbols = TICKERS.iter().map(|(s, ..)| *s).collect::<Vec<_>>().join(",");
     let end = chrono::Utc::now().date_naive();
     let start = end - chrono::Duration::days(200);
 
@@ -341,12 +401,11 @@ async fn refresh_returns(state: &AppState) -> anyhow::Result<()> {
 
     let rows: Vec<ReturnsOut> = TICKERS
         .iter()
-        .map(|(symbol, name)| {
+        .map(|(symbol, ..)| {
             let closes = closes_by_symbol.get(*symbol).map(Vec::as_slice).unwrap_or(&[]);
             let six_month_days = closes.len().saturating_sub(1).min(126);
             ReturnsOut {
                 symbol: symbol.to_string(),
-                name: name.to_string(),
                 week_pct: pct_change(closes, 5),
                 month_pct: pct_change(closes, 21),
                 six_month_pct: pct_change(closes, six_month_days),
@@ -387,7 +446,7 @@ async fn insert_quote_with_volume(
 async fn api_quotes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let mut out = Vec::new();
 
-    for (symbol, name) in TICKERS {
+    for (symbol, ..) in TICKERS {
         let symbol_owned = symbol.to_string();
         let latest = state
             .db
@@ -453,7 +512,6 @@ async fn api_quotes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 
         out.push(QuoteOut {
             symbol: symbol.to_string(),
-            name: name.to_string(),
             price,
             change,
             percent_change,
@@ -471,7 +529,7 @@ async fn api_history(
     State(state): State<Arc<AppState>>,
     Path(symbol): Path<String>,
 ) -> impl IntoResponse {
-    if !TICKERS.iter().any(|(s, _)| *s == symbol) {
+    if !TICKERS.iter().any(|(s, ..)| *s == symbol) {
         return (StatusCode::NOT_FOUND, Json(Vec::<HistoryPoint>::new()));
     }
 
@@ -502,7 +560,6 @@ async fn api_history(
 #[derive(Serialize)]
 struct ReturnsRow {
     symbol: String,
-    name: String,
     day_pct: Option<f64>,
     week_pct: Option<f64>,
     month_pct: Option<f64>,
@@ -539,7 +596,6 @@ async fn api_returns(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 
         rows.push(ReturnsRow {
             symbol: r.symbol.clone(),
-            name: r.name.clone(),
             day_pct,
             week_pct: r.week_pct,
             month_pct: r.month_pct,

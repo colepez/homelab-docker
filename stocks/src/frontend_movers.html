@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Movers // pezzitools stocks</title>
+<link rel="stylesheet" href="/stocks/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <a href="/stocks"><span class="mark">pezzitools<span>::</span>stocks</span></a>
+      <span class="sub">leveraged etf terminal</span>
+    </div>
+    <div class="topbar-right">
+      <span class="clock mono num" id="clock">--:--:--</span>
+      <span class="market-countdown mono num" id="market-countdown">--</span>
+      <span class="status-pill" id="market-pill"><span class="status-dot"></span><span id="market-text">--</span></span>
+    </div>
+  </header>
+
+  <main>
+    <nav class="nav-links" id="nav-links"></nav>
+    <div class="breadcrumb"><a href="/stocks">&larr; All categories</a></div>
+
+    <p class="returns-note mono">price change, split-adjusted &middot; today updates every 2min, 1W/1M/6M refresh daily &middot; as of <span id="returns-asof">--</span> &middot; click a column to sort</p>
+    <div class="returns-table-wrap">
+      <table class="returns-table">
+        <thead>
+          <tr>
+            <th>Fund</th>
+            <th>Tracks</th>
+            <th class="num sortable" data-sort="day_pct">Today</th>
+            <th class="num sortable" data-sort="week_pct">1W</th>
+            <th class="num sortable" data-sort="month_pct">1M</th>
+            <th class="num sortable" data-sort="six_month_pct">6M</th>
+          </tr>
+        </thead>
+        <tbody id="returns-body"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <footer>
+    quotes via alpaca (iex feed), polled every 2min
+  </footer>
+
+<script src="/stocks/app.js"></script>
+<script>
+let returnsRows = [];
+let tickerMeta = {};
+let returnsSort = { key: null, dir: -1 };
+
+function renderReturns() {
+  let ordered;
+  if (returnsSort.key) {
+    ordered = [...returnsRows].sort((a, b) => {
+      const av = a[returnsSort.key], bv = b[returnsSort.key];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return (av - bv) * returnsSort.dir;
+    });
+  } else {
+    ordered = returnsRows;
+  }
+
+  const body = document.getElementById("returns-body");
+  body.innerHTML = "";
+  ordered.forEach(r => {
+    const meta = tickerMeta[r.symbol];
+    if (!meta) return;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>
+        <span class="sym-cell">
+          <span class="tc-symbol mono">${r.symbol}</span>
+          <span class="direction-tag mono ${meta.inverse ? "inverse" : "bull"}">${leverageTag(meta)}</span>
+        </span>
+      </td>
+      <td class="name">${meta.name}</td>
+      <td class="num ${upDown(r.day_pct ?? 0)}">${fmtPct(r.day_pct)}</td>
+      <td class="num ${upDown(r.week_pct ?? 0)}">${fmtPct(r.week_pct)}</td>
+      <td class="num ${upDown(r.month_pct ?? 0)}">${fmtPct(r.month_pct)}</td>
+      <td class="num ${upDown(r.six_month_pct ?? 0)}">${fmtPct(r.six_month_pct)}</td>
+    `;
+    body.appendChild(tr);
+  });
+
+  document.querySelectorAll(".returns-table th.sortable").forEach(th => {
+    const active = th.dataset.sort === returnsSort.key;
+    th.classList.toggle("active", active);
+    th.classList.toggle("asc", active && returnsSort.dir === 1);
+    th.classList.toggle("desc", active && returnsSort.dir === -1);
+  });
+}
+
+document.querySelectorAll(".returns-table th.sortable").forEach(th => {
+  th.addEventListener("click", () => {
+    const key = th.dataset.sort;
+    if (returnsSort.key === key) {
+      returnsSort.dir *= -1;
+    } else {
+      returnsSort = { key, dir: -1 };
+    }
+    renderReturns();
+  });
+});
+
+async function loadReturns() {
+  try {
+    const res = await fetch("/stocks/api/returns");
+    if (!res.ok) throw new Error("bad response");
+    const data = await res.json();
+    document.getElementById("returns-asof").textContent = fmtAsOf(data.as_of);
+    returnsRows = data.rows;
+    renderReturns();
+  } catch (e) { /* transient network error, next refresh retries */ }
+}
+
+async function init() {
+  const categories = await fetchCategories();
+  const nav = document.getElementById("nav-links");
+  nav.innerHTML = `<a href="/stocks">Home</a>` +
+    categories.map(c => `<a href="/stocks/${c.slug}">${c.label}</a>`).join("") +
+    `<a href="/stocks/movers" class="active">Movers</a>`;
+
+  categories.forEach(c => c.tickers.forEach(t => { tickerMeta[t.symbol] = t; }));
+
+  loadReturns();
+  setInterval(loadReturns, 30_000);
+}
+init();
+</script>
+</body>
+</html>

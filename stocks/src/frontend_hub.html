@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>pezzitools // stocks</title>
+<link rel="stylesheet" href="/stocks/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <a href="/stocks"><span class="mark">pezzitools<span>::</span>stocks</span></a>
+      <span class="sub">leveraged etf terminal</span>
+    </div>
+    <div class="topbar-right">
+      <span class="clock mono num" id="clock">--:--:--</span>
+      <span class="market-countdown mono num" id="market-countdown">--</span>
+      <span class="status-pill" id="market-pill"><span class="status-dot"></span><span id="market-text">--</span></span>
+    </div>
+  </header>
+
+  <main>
+    <nav class="nav-links" id="nav-links"></nav>
+
+    <div class="hero">
+      <h1>2x &amp; 3x leveraged fund tracker</h1>
+      <p>Every leveraged bull fund paired with its inverse, grouped by underlying index or sector. Polled every 2 minutes, with daily 1-week/1-month/6-month performance history.</p>
+    </div>
+
+    <a class="movers-card" href="/stocks/movers">
+      <div>
+        <div class="mc-label">Movers &amp; Returns</div>
+        <div class="mc-sub">Every fund, sortable by today / 1W / 1M / 6M performance</div>
+      </div>
+      <div class="mc-arrow">&rarr;</div>
+    </a>
+
+    <p class="section-label">Categories</p>
+    <div class="category-grid" id="category-grid"></div>
+  </main>
+
+  <footer>
+    quotes via alpaca (iex feed), polled every 2min &middot; 1w/1m/6m refreshed daily
+  </footer>
+
+<script src="/stocks/app.js"></script>
+<script>
+async function buildNav() {
+  const categories = await fetchCategories();
+  const nav = document.getElementById("nav-links");
+  nav.innerHTML = `<a href="/stocks" class="active">Home</a>` +
+    categories.map(c => `<a href="/stocks/${c.slug}">${c.label}</a>`).join("") +
+    `<a href="/stocks/movers">Movers</a>`;
+  return categories;
+}
+
+async function buildGrid() {
+  const [categories, quotes] = await Promise.all([
+    fetchCategories(),
+    fetch("/stocks/api/quotes").then(r => r.ok ? r.json() : []),
+  ]);
+  const quoteBySymbol = Object.fromEntries(quotes.map(q => [q.symbol, q]));
+  const grid = document.getElementById("category-grid");
+
+  grid.innerHTML = categories.map(cat => {
+    const withQuotes = cat.tickers
+      .map(t => ({ ticker: t, quote: quoteBySymbol[t.symbol] }))
+      .filter(x => x.quote);
+    let moverHtml = `<span class="cc-mover-label">Top mover</span><span>--</span>`;
+    if (withQuotes.length) {
+      const top = withQuotes.reduce((a, b) =>
+        Math.abs(b.quote.percent_change) > Math.abs(a.quote.percent_change) ? b : a);
+      moverHtml = `
+        <span class="cc-mover-label">Top mover</span>
+        <span class="mono num ${upDown(top.quote.percent_change)}">${top.ticker.symbol} ${fmtPct(top.quote.percent_change)}</span>
+      `;
+    }
+    return `
+      <a class="category-card" href="/stocks/${cat.slug}">
+        <div class="cc-label">${cat.label}</div>
+        <div class="cc-count">${cat.tickers.length} funds tracked</div>
+        <div class="cc-mover">${moverHtml}</div>
+      </a>
+    `;
+  }).join("");
+}
+
+buildNav();
+buildGrid();
+setInterval(buildGrid, 30_000);
+</script>
+</body>
+</html>
