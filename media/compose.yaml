@@ -87,27 +87,29 @@ services:
     networks:
       - edge
 
-  plex:
-    image: lscr.io/linuxserver/plex:latest
-    container_name: plex
-    restart: unless-stopped
-    environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TZ}
-      - PLEX_CLAIM=${PLEX_CLAIM}
-      - VERSION=docker
-    volumes:
-      - /srv/docker/media/plex/data:/config
-      - /srv/docker/media/plex/transcode:/transcode
-      - /mnt/media:/mnt/media
-    networks:
-      - edge
-    # Uncomment to enable Intel Quick Sync hardware transcoding, if the host has a
-    # compatible iGPU - cuts Plex's RAM/CPU usage per stream substantially versus
-    # software transcoding.
-    # devices:
-    #   - /dev/dri:/dev/dri
+  # plex: migrated 2026-08-17 to a dedicated LXC (10.21.2.68) on wontwon for
+  # real NVIDIA GPU passthrough (RTX 3060 Ti) - not possible for a container
+  # inside this VM without full VM-level PCI passthrough, which would have
+  # made the GPU exclusive to this VM instead of shareable. See
+  # scripts/README.md and the LXC's own /srv/plex/compose/compose.yaml.
+  # Old config data intentionally left in place at
+  # /srv/docker/media/plex/data as a safety net, not deleted.
+  # plex:
+  #   image: lscr.io/linuxserver/plex:latest
+  #   container_name: plex
+  #   restart: unless-stopped
+  #   environment:
+  #     - PUID=${PUID}
+  #     - PGID=${PGID}
+  #     - TZ=${TZ}
+  #     - PLEX_CLAIM=${PLEX_CLAIM}
+  #     - VERSION=docker
+  #   volumes:
+  #     - /srv/docker/media/plex/data:/config
+  #     - /srv/docker/media/plex/transcode:/transcode
+  #     - /mnt/media:/mnt/media
+  #   networks:
+  #     - edge
 
 networks:
   edge:
