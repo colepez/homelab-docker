@@ -353,14 +353,15 @@
 // the same benchmark sit together (e.g. TQQQ/SQQQ are both Nasdaq-100).
 const GROUPS = [
   { label: "Nasdaq-100", symbols: ["TQQQ", "SQQQ"] },
-  { label: "S&P 500", symbols: ["UPRO", "SPXL"] },
-  { label: "Small Cap · Russell 2000", symbols: ["TNA"] },
-  { label: "Semiconductors", symbols: ["SOXL"] },
-  { label: "Financials", symbols: ["FAS"] },
-  { label: "Technology", symbols: ["TECL"] },
-  { label: "Biotech", symbols: ["LABU"] },
+  { label: "S&P 500 · ProShares", symbols: ["UPRO", "SPXU"] },
+  { label: "S&P 500 · Direxion", symbols: ["SPXL", "SPXS"] },
+  { label: "Small Cap · Russell 2000", symbols: ["TNA", "TZA"] },
+  { label: "Semiconductors", symbols: ["SOXL", "SOXS"] },
+  { label: "Financials", symbols: ["FAS", "FAZ"] },
+  { label: "Technology", symbols: ["TECL", "TECS"] },
+  { label: "Biotech", symbols: ["LABU", "LABD"] },
 ];
-const INVERSE = new Set(["SQQQ"]);
+const INVERSE = new Set(["SQQQ", "SOXS", "SPXU", "SPXS", "TZA", "FAZ", "TECS", "LABD"]);
 const TICKERS = GROUPS.flatMap(g => g.symbols);
 const cardEls = {};
 const sparkData = {};

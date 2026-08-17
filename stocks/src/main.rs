@@ -16,19 +16,26 @@ use tokio_tungstenite::tungstenite::Message;
 const FRONTEND_INDEX: &str = include_str!("frontend_index.html");
 const FRONTEND_3X: &str = include_str!("frontend_3x.html");
 
-// All 9 tickers stream live over Alpaca's free IEX WebSocket feed, which
+// All tickers stream live over Alpaca's free IEX WebSocket feed, which
 // allows up to 30 symbol subscriptions on the free tier -- comfortably
 // covers this list with no need to round-robin or ration requests.
 const TICKERS: &[(&str, &str)] = &[
     ("TQQQ", "ProShares UltraPro QQQ (3x Nasdaq-100)"),
+    ("SQQQ", "ProShares UltraPro Short QQQ (3x inverse Nasdaq-100)"),
     ("SOXL", "Direxion Daily Semiconductor Bull 3x"),
+    ("SOXS", "Direxion Daily Semiconductor Bear 3x"),
     ("UPRO", "ProShares UltraPro S&P 500"),
+    ("SPXU", "ProShares UltraPro Short S&P 500 (3x inverse)"),
     ("SPXL", "Direxion Daily S&P 500 Bull 3x"),
+    ("SPXS", "Direxion Daily S&P 500 Bear 3x"),
     ("TNA", "Direxion Daily Small Cap Bull 3x"),
+    ("TZA", "Direxion Daily Small Cap Bear 3x"),
     ("FAS", "Direxion Daily Financial Bull 3x"),
+    ("FAZ", "Direxion Daily Financial Bear 3x"),
     ("TECL", "Direxion Daily Technology Bull 3x"),
+    ("TECS", "Direxion Daily Technology Bear 3x"),
     ("LABU", "Direxion Daily S&P Biotech Bull 3x"),
-    ("SQQQ", "ProShares UltraPro Short QQQ (3x inverse Nasdaq)"),
+    ("LABD", "Direxion Daily S&P Biotech Bear 3x"),
 ];
 
 const ALPACA_WS_URL: &str = "wss://stream.data.alpaca.markets/v2/iex";
