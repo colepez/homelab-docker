@@ -113,6 +113,23 @@
     50% { opacity: 0.35; }
   }
 
+  .status-pill.closed {
+    color: var(--text-faint);
+    border-color: var(--border-hi);
+    background: var(--surface-hi);
+  }
+  .status-pill.closed .status-dot {
+    background: var(--text-faint);
+    box-shadow: none;
+    animation: none !important;
+  }
+  .market-countdown {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.68rem;
+    color: var(--text-faint);
+    margin-left: 2px;
+  }
+
   main { max-width: 1280px; margin: 0 auto; padding: 28px; position: relative; }
 
   .sentiment {
@@ -165,6 +182,29 @@
     background: var(--border);
   }
 
+  .group-section { margin-bottom: 32px; }
+  .group-section:last-child { margin-bottom: 0; }
+
+  .direction-tag {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.06em;
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--border-hi);
+    color: var(--text-dim);
+  }
+  .direction-tag.inverse {
+    color: var(--down);
+    border-color: var(--down-dim);
+    background: var(--down-dim);
+  }
+  .direction-tag.bull {
+    color: var(--up);
+    border-color: var(--up-dim);
+    background: var(--up-dim);
+  }
+
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -187,6 +227,11 @@
     align-items: center;
     justify-content: space-between;
     margin-bottom: 2px;
+  }
+  .tc-head-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
   .tc-symbol {
     font-family: "IBM Plex Mono", ui-monospace, monospace;
@@ -270,6 +315,8 @@
     </div>
     <div class="topbar-right">
       <span class="clock mono num" id="clock">--:--:--</span>
+      <span class="market-countdown mono num" id="market-countdown">--</span>
+      <span class="status-pill" id="market-pill"><span class="status-dot"></span><span id="market-text">--</span></span>
       <span class="status-pill"><span class="status-dot"></span><span id="status-text">live</span></span>
     </div>
   </header>
@@ -294,8 +341,7 @@
       </div>
     </div>
 
-    <p class="section-label">3x leveraged funds</p>
-    <div class="grid" id="grid"></div>
+    <div id="groups"></div>
   </main>
 
   <footer>
@@ -303,8 +349,18 @@
   </footer>
 
 <script>
-const TICKERS = ["TQQQ","SOXL","UPRO","SPXL","TNA","FAS","TECL","LABU","SQQQ"];
-const grid = document.getElementById("grid");
+// Grouped by underlying index/sector so bull and inverse funds tracking
+// the same benchmark sit together (e.g. TQQQ/SQQQ are both Nasdaq-100).
+const GROUPS = [
+  { label: "Nasdaq-100", symbols: ["TQQQ", "SQQQ"] },
+  { label: "S&P 500", symbols: ["UPRO", "SPXL"] },
+  { label: "Small Cap · Russell 2000", symbols: ["TNA"] },
+  { label: "Financials", symbols: ["FAS"] },
+  { label: "Technology", symbols: ["TECL"] },
+  { label: "Biotech", symbols: ["LABU"] },
+];
+const INVERSE = new Set(["SQQQ"]);
+const TICKERS = GROUPS.flatMap(g => g.symbols);
 const cardEls = {};
 const sparkData = {};
 
@@ -333,13 +389,17 @@ function fmtAge(unixTs) {
   return `${Math.round(mins / 60)}h ago`;
 }
 
-function makeSkeleton(symbol) {
+function makeSkeleton(symbol, gridEl) {
+  const inverse = INVERSE.has(symbol);
   const el = document.createElement("article");
   el.className = "ticker-card skeleton";
   el.dataset.symbol = symbol;
   el.innerHTML = `
     <div class="tc-head">
-      <span class="tc-symbol mono">${symbol}</span>
+      <span class="tc-head-left">
+        <span class="tc-symbol mono">${symbol}</span>
+        <span class="direction-tag mono ${inverse ? "inverse" : "bull"}">${inverse ? "&minus;3x" : "3x"}</span>
+      </span>
       <span class="tc-badge mono">--</span>
     </div>
     <div class="tc-name">loading&hellip;</div>
@@ -352,10 +412,24 @@ function makeSkeleton(symbol) {
       <div><span class="tc-label">Vol</span><span class="tc-val mono num">--</span></div>
     </div>
   `;
-  grid.appendChild(el);
+  gridEl.appendChild(el);
   cardEls[symbol] = el;
 }
-TICKERS.forEach(makeSkeleton);
+
+const groupsContainer = document.getElementById("groups");
+GROUPS.forEach(group => {
+  const section = document.createElement("section");
+  section.className = "group-section";
+  const heading = document.createElement("p");
+  heading.className = "section-label";
+  heading.textContent = group.label;
+  const gridEl = document.createElement("div");
+  gridEl.className = "grid";
+  section.appendChild(heading);
+  section.appendChild(gridEl);
+  groupsContainer.appendChild(section);
+  group.symbols.forEach(symbol => makeSkeleton(symbol, gridEl));
+});
 
 function drawSpark(canvas, points, positive) {
   const ctx = canvas.getContext("2d");
@@ -460,8 +534,57 @@ function tickNextPoll() {
   document.getElementById("sent-next").textContent = `${secs}s`;
 }
 
+// Regular NYSE/Nasdaq hours only (9:30am-4pm ET, Mon-Fri) -- does not
+// account for market holidays, so it can read "open" on e.g. Thanksgiving.
+const ET_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York", hour12: false,
+  hour: "2-digit", minute: "2-digit", second: "2-digit", weekday: "short",
+});
+const WEEKDAY_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+const OPEN_MIN = 9 * 60 + 30;
+const CLOSE_MIN = 16 * 60;
+
+function fmtDuration(totalMinutes) {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function tickMarketStatus() {
+  const parts = Object.fromEntries(ET_FMT.formatToParts(new Date()).map(p => [p.type, p.value]));
+  const dayIdx = WEEKDAY_INDEX[parts.weekday];
+  const mins = parseInt(parts.hour, 10) * 60 + parseInt(parts.minute, 10);
+  const secs = parseInt(parts.second, 10);
+  const isWeekday = dayIdx >= 1 && dayIdx <= 5;
+  const isOpen = isWeekday && mins >= OPEN_MIN && mins < CLOSE_MIN;
+
+  const pill = document.getElementById("market-pill");
+  const text = document.getElementById("market-text");
+  const countdown = document.getElementById("market-countdown");
+
+  if (isOpen) {
+    pill.classList.remove("closed");
+    text.textContent = "market open";
+    const minsLeft = CLOSE_MIN - mins - (secs > 0 ? 1 : 0);
+    countdown.textContent = `closes in ${fmtDuration(Math.max(minsLeft, 0))}`;
+  } else {
+    pill.classList.add("closed");
+    text.textContent = "market closed";
+    let daysAhead;
+    if (isWeekday && mins < OPEN_MIN) daysAhead = 0;
+    else if (dayIdx === 5) daysAhead = 3;
+    else if (dayIdx === 6) daysAhead = 2;
+    else if (dayIdx === 0) daysAhead = 1;
+    else daysAhead = 1;
+    const minsUntil = daysAhead * 1440 + OPEN_MIN - mins - (secs > 0 ? 1 : 0);
+    countdown.textContent = `opens in ${fmtDuration(Math.max(minsUntil, 0))}`;
+  }
+}
+
 tickClock();
+tickMarketStatus();
 setInterval(tickClock, 1000);
+setInterval(tickMarketStatus, 1000);
 setInterval(tickNextPoll, 1000);
 
 loadQuotes();
