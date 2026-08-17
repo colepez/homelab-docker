@@ -194,6 +194,24 @@
     text-align: right;
     font-variant-numeric: tabular-nums;
   }
+  .returns-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s ease;
+  }
+  .returns-table th.sortable:hover { color: var(--text-dim); }
+  .returns-table th.sortable.active { color: var(--accent); }
+  .returns-table th.sortable::after {
+    content: "";
+    display: inline-block;
+    width: 0; height: 0;
+    margin-left: 4px;
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    vertical-align: middle;
+  }
+  .returns-table th.sortable.asc::after { border-bottom: 4px solid currentColor; }
+  .returns-table th.sortable.desc::after { border-top: 4px solid currentColor; }
   .returns-table tbody tr { border-bottom: 1px solid var(--border); }
   .returns-table tbody tr:last-child { border-bottom: none; }
   .returns-table tbody tr:hover { background: var(--surface-hi); }
@@ -387,7 +405,7 @@
       <span class="clock mono num" id="clock">--:--:--</span>
       <span class="market-countdown mono num" id="market-countdown">--</span>
       <span class="status-pill" id="market-pill"><span class="status-dot"></span><span id="market-text">--</span></span>
-      <span class="status-pill"><span class="status-dot"></span><span id="status-text">live</span></span>
+      <span class="status-pill"><span class="status-dot"></span><span id="status-text">connected</span></span>
     </div>
   </header>
 
@@ -421,16 +439,17 @@
     </div>
 
     <div id="tab-returns" hidden>
-      <p class="returns-note mono">1-week / 1-month / 6-month price change, split-adjusted, refreshed once daily &middot; as of <span id="returns-asof">--</span></p>
+      <p class="returns-note mono">price change, split-adjusted &middot; today updates every 2min, 1W/1M/6M refresh daily &middot; as of <span id="returns-asof">--</span> &middot; click a column to sort</p>
       <div class="returns-table-wrap">
         <table class="returns-table">
           <thead>
             <tr>
               <th>Fund</th>
               <th>Tracks</th>
-              <th class="num">1W</th>
-              <th class="num">1M</th>
-              <th class="num">6M</th>
+              <th class="num sortable" data-sort="day_pct">Today</th>
+              <th class="num sortable" data-sort="week_pct">1W</th>
+              <th class="num sortable" data-sort="month_pct">1M</th>
+              <th class="num sortable" data-sort="six_month_pct">6M</th>
             </tr>
           </thead>
           <tbody id="returns-body"></tbody>
@@ -440,23 +459,30 @@
   </main>
 
   <footer>
-    live trade ticks via alpaca (iex feed) &middot; dashboard re-checks every 30s &middot; <a href="/stocks">&larr; back to stocks</a>
+    quotes via alpaca (iex feed), polled every 2min &middot; dashboard re-checks every 30s &middot; <a href="/stocks">&larr; back to stocks</a>
   </footer>
 
 <script>
 // Grouped by underlying index/sector so bull and inverse funds tracking
-// the same benchmark sit together (e.g. TQQQ/SQQQ are both Nasdaq-100).
+// the same benchmark sit together (e.g. TQQQ/SQQQ are both Nasdaq-100),
+// with 2x and 3x pairs both present per category.
 const GROUPS = [
-  { label: "Nasdaq-100", symbols: ["TQQQ", "SQQQ"] },
-  { label: "S&P 500 · ProShares", symbols: ["UPRO", "SPXU"] },
+  { label: "Nasdaq-100", symbols: ["TQQQ", "SQQQ", "QLD", "QID"] },
+  { label: "S&P 500 · ProShares", symbols: ["UPRO", "SPXU", "SSO", "SDS"] },
   { label: "S&P 500 · Direxion", symbols: ["SPXL", "SPXS"] },
-  { label: "Small Cap · Russell 2000", symbols: ["TNA", "TZA"] },
-  { label: "Semiconductors", symbols: ["SOXL", "SOXS"] },
-  { label: "Financials", symbols: ["FAS", "FAZ"] },
-  { label: "Technology", symbols: ["TECL", "TECS"] },
-  { label: "Biotech", symbols: ["LABU", "LABD"] },
+  { label: "Small Cap · Russell 2000", symbols: ["TNA", "TZA", "UWM", "TWM"] },
+  { label: "Semiconductors", symbols: ["SOXL", "SOXS", "USD", "SSG"] },
+  { label: "Financials", symbols: ["FAS", "FAZ", "UYG", "SKF"] },
+  { label: "Technology", symbols: ["TECL", "TECS", "ROM", "REW"] },
+  { label: "Biotech", symbols: ["LABU", "LABD", "BIB", "BIS"] },
 ];
-const INVERSE = new Set(["SQQQ", "SOXS", "SPXU", "SPXS", "TZA", "FAZ", "TECS", "LABD"]);
+const INVERSE = new Set(["SQQQ", "QID", "SPXU", "SDS", "SPXS", "TZA", "TWM", "SOXS", "SSG", "FAZ", "SKF", "TECS", "REW", "LABD", "BIS"]);
+// 3x is the default magnitude; anything not listed here is 2x.
+const THREE_X = new Set(["TQQQ", "SQQQ", "UPRO", "SPXU", "SPXL", "SPXS", "TNA", "TZA", "SOXL", "SOXS", "FAS", "FAZ", "TECL", "TECS", "LABU", "LABD"]);
+function leverageTag(symbol) {
+  const mag = THREE_X.has(symbol) ? "3x" : "2x";
+  return INVERSE.has(symbol) ? `&minus;${mag}` : mag;
+}
 const TICKERS = GROUPS.flatMap(g => g.symbols);
 const cardEls = {};
 const sparkData = {};
@@ -495,7 +521,7 @@ function makeSkeleton(symbol, gridEl) {
     <div class="tc-head">
       <span class="tc-head-left">
         <span class="tc-symbol mono">${symbol}</span>
-        <span class="direction-tag mono ${inverse ? "inverse" : "bull"}">${inverse ? "&minus;3x" : "3x"}</span>
+        <span class="direction-tag mono ${inverse ? "inverse" : "bull"}">${leverageTag(symbol)}</span>
       </span>
       <span class="tc-badge mono">--</span>
     </div>
@@ -589,7 +615,7 @@ async function loadQuotes() {
     const res = await fetch("/stocks/3x/api/quotes");
     if (!res.ok) throw new Error("bad response");
     const quotes = await res.json();
-    document.getElementById("status-text").textContent = "live";
+    document.getElementById("status-text").textContent = "connected";
 
     if (quotes.length) {
       const avg24h = quotes.reduce((a, q) => a + (q.return_24h_pct ?? 0), 0) / quotes.length;
@@ -702,43 +728,78 @@ function fmtAsOf(unixTs) {
   });
 }
 
+let returnsRows = [];
+let returnsSort = { key: null, dir: -1 };
+
+function renderReturns() {
+  const bySymbol = Object.fromEntries(returnsRows.map(r => [r.symbol, r]));
+  let ordered;
+  if (returnsSort.key) {
+    ordered = [...returnsRows].sort((a, b) => {
+      const av = a[returnsSort.key], bv = b[returnsSort.key];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return (av - bv) * returnsSort.dir;
+    });
+  } else {
+    ordered = GROUPS.flatMap(g => g.symbols.map(s => bySymbol[s]).filter(Boolean));
+  }
+
+  const body = document.getElementById("returns-body");
+  body.innerHTML = "";
+  ordered.forEach(r => {
+    const inverse = INVERSE.has(r.symbol);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>
+        <span class="sym-cell">
+          <span class="tc-symbol mono">${r.symbol}</span>
+          <span class="direction-tag mono ${inverse ? "inverse" : "bull"}">${leverageTag(r.symbol)}</span>
+        </span>
+      </td>
+      <td class="name">${r.name}</td>
+      <td class="num ${upDown(r.day_pct ?? 0)}">${fmtPct(r.day_pct)}</td>
+      <td class="num ${upDown(r.week_pct ?? 0)}">${fmtPct(r.week_pct)}</td>
+      <td class="num ${upDown(r.month_pct ?? 0)}">${fmtPct(r.month_pct)}</td>
+      <td class="num ${upDown(r.six_month_pct ?? 0)}">${fmtPct(r.six_month_pct)}</td>
+    `;
+    body.appendChild(tr);
+  });
+
+  document.querySelectorAll(".returns-table th.sortable").forEach(th => {
+    const active = th.dataset.sort === returnsSort.key;
+    th.classList.toggle("active", active);
+    th.classList.toggle("asc", active && returnsSort.dir === 1);
+    th.classList.toggle("desc", active && returnsSort.dir === -1);
+  });
+}
+
+document.querySelectorAll(".returns-table th.sortable").forEach(th => {
+  th.addEventListener("click", () => {
+    const key = th.dataset.sort;
+    if (returnsSort.key === key) {
+      returnsSort.dir *= -1;
+    } else {
+      returnsSort = { key, dir: -1 };
+    }
+    renderReturns();
+  });
+});
+
 async function loadReturns() {
   try {
     const res = await fetch("/stocks/3x/api/returns");
     if (!res.ok) throw new Error("bad response");
     const data = await res.json();
     document.getElementById("returns-asof").textContent = fmtAsOf(data.as_of);
-
-    const bySymbol = Object.fromEntries(data.rows.map(r => [r.symbol, r]));
-    const body = document.getElementById("returns-body");
-    body.innerHTML = "";
-
-    GROUPS.forEach(group => {
-      group.symbols.forEach(symbol => {
-        const r = bySymbol[symbol];
-        if (!r) return;
-        const inverse = INVERSE.has(symbol);
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>
-            <span class="sym-cell">
-              <span class="tc-symbol mono">${symbol}</span>
-              <span class="direction-tag mono ${inverse ? "inverse" : "bull"}">${inverse ? "&minus;3x" : "3x"}</span>
-            </span>
-          </td>
-          <td class="name">${r.name}</td>
-          <td class="num ${upDown(r.week_pct ?? 0)}">${fmtPct(r.week_pct)}</td>
-          <td class="num ${upDown(r.month_pct ?? 0)}">${fmtPct(r.month_pct)}</td>
-          <td class="num ${upDown(r.six_month_pct ?? 0)}">${fmtPct(r.six_month_pct)}</td>
-        `;
-        body.appendChild(tr);
-      });
-    });
+    returnsRows = data.rows;
+    renderReturns();
   } catch (e) { /* transient network error, next refresh retries */ }
 }
 
 loadReturns();
-setInterval(loadReturns, 5 * 60_000);
+setInterval(loadReturns, 30_000);
 
 const tabLive = document.getElementById("tab-live");
 const tabReturns = document.getElementById("tab-returns");

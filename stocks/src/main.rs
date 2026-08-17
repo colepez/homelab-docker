@@ -5,56 +5,68 @@ use axum::{
     routing::get,
     Router,
 };
-use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use serde_json::Value;
-use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::sync::RwLock;
+use std::{sync::Arc, time::Duration};
 use tokio_rusqlite::Connection;
-use tokio_tungstenite::tungstenite::Message;
 
 const FRONTEND_INDEX: &str = include_str!("frontend_index.html");
 const FRONTEND_3X: &str = include_str!("frontend_3x.html");
 
-// All tickers stream live over Alpaca's free IEX WebSocket feed, which
-// allows up to 30 symbol subscriptions on the free tier -- comfortably
-// covers this list with no need to round-robin or ration requests.
+// Every 2x/3x leveraged bull fund paired with its inverse, grouped by
+// underlying index/sector. Some 2x bear products (semiconductors,
+// financials, technology, biotech) trade extremely thin volume -- real and
+// valid, just illiquid; included anyway for full coverage.
 const TICKERS: &[(&str, &str)] = &[
     ("TQQQ", "ProShares UltraPro QQQ (3x Nasdaq-100)"),
     ("SQQQ", "ProShares UltraPro Short QQQ (3x inverse Nasdaq-100)"),
-    ("SOXL", "Direxion Daily Semiconductor Bull 3x"),
-    ("SOXS", "Direxion Daily Semiconductor Bear 3x"),
-    ("UPRO", "ProShares UltraPro S&P 500"),
+    ("QLD", "ProShares Ultra QQQ (2x Nasdaq-100)"),
+    ("QID", "ProShares UltraShort QQQ (2x inverse Nasdaq-100)"),
+    ("UPRO", "ProShares UltraPro S&P 500 (3x)"),
     ("SPXU", "ProShares UltraPro Short S&P 500 (3x inverse)"),
+    ("SSO", "ProShares Ultra S&P 500 (2x)"),
+    ("SDS", "ProShares UltraShort S&P 500 (2x inverse)"),
     ("SPXL", "Direxion Daily S&P 500 Bull 3x"),
     ("SPXS", "Direxion Daily S&P 500 Bear 3x"),
     ("TNA", "Direxion Daily Small Cap Bull 3x"),
     ("TZA", "Direxion Daily Small Cap Bear 3x"),
+    ("UWM", "ProShares Ultra Russell2000 (2x)"),
+    ("TWM", "ProShares UltraShort Russell2000 (2x inverse)"),
+    ("SOXL", "Direxion Daily Semiconductor Bull 3x"),
+    ("SOXS", "Direxion Daily Semiconductor Bear 3x"),
+    ("USD", "Direxion Daily Semiconductor Bull 2x"),
+    ("SSG", "ProShares UltraShort Semiconductors (2x inverse)"),
     ("FAS", "Direxion Daily Financial Bull 3x"),
     ("FAZ", "Direxion Daily Financial Bear 3x"),
+    ("UYG", "ProShares Ultra Financials (2x)"),
+    ("SKF", "ProShares UltraShort Financials (2x inverse)"),
     ("TECL", "Direxion Daily Technology Bull 3x"),
     ("TECS", "Direxion Daily Technology Bear 3x"),
+    ("ROM", "ProShares Ultra Technology (2x)"),
+    ("REW", "ProShares UltraShort Technology (2x inverse)"),
     ("LABU", "Direxion Daily S&P Biotech Bull 3x"),
     ("LABD", "Direxion Daily S&P Biotech Bear 3x"),
+    ("BIB", "ProShares Ultra Nasdaq Biotechnology (2x)"),
+    ("BIS", "ProShares UltraShort Nasdaq Biotechnology (2x inverse)"),
 ];
 
-const ALPACA_WS_URL: &str = "wss://stream.data.alpaca.markets/v2/iex";
 const ALPACA_DATA_BASE: &str = "https://data.alpaca.markets/v2";
-// The trade stream gives price ticks but not daily change, so previous
-// close is fetched separately and refreshed on this interval to track the
-// new trading day's baseline.
-const PREV_CLOSE_REFRESH: Duration = Duration::from_secs(6 * 3600);
+const POLL_INTERVAL: Duration = Duration::from_secs(120);
 // 1w/1m/6m returns only meaningfully shift once per trading day, so a daily
 // refresh of the historical-bars snapshot is plenty.
 const RETURNS_REFRESH: Duration = Duration::from_secs(24 * 3600);
+// Sparkline/24h-return/since-tracked all only ever look back a few days at
+// most, so older rows are pure dead weight -- pruned daily to keep the DB
+// file size bounded regardless of how long this runs.
+const RETENTION_DAYS: i64 = 30;
+const RETENTION_SWEEP: Duration = Duration::from_secs(24 * 3600);
 
 struct AppState {
     db: Connection,
     client: reqwest::Client,
     key_id: String,
     secret_key: String,
-    prev_close: RwLock<HashMap<String, f64>>,
-    returns_cache: RwLock<ReturnsCache>,
+    returns_cache: tokio::sync::RwLock<ReturnsCache>,
 }
 
 #[derive(Default)]
@@ -103,7 +115,8 @@ async fn main() -> anyhow::Result<()> {
     let db = Connection::open(&db_path).await?;
     db.call(|conn| {
         conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS quotes (
+            "PRAGMA auto_vacuum = INCREMENTAL;
+            CREATE TABLE IF NOT EXISTS quotes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol TEXT NOT NULL,
                 ts INTEGER NOT NULL,
@@ -123,30 +136,17 @@ async fn main() -> anyhow::Result<()> {
         client: reqwest::Client::new(),
         key_id,
         secret_key,
-        prev_close: RwLock::new(HashMap::new()),
-        returns_cache: RwLock::new(ReturnsCache::default()),
+        returns_cache: tokio::sync::RwLock::new(ReturnsCache::default()),
     });
 
     {
         let state = state.clone();
         tokio::spawn(async move {
             loop {
-                if let Err(e) = refresh_prev_closes(&state).await {
-                    tracing::error!("refresh_prev_closes failed: {e:#}");
+                if let Err(e) = poll_quotes(&state).await {
+                    tracing::error!("poll_quotes failed: {e:#}");
                 }
-                tokio::time::sleep(PREV_CLOSE_REFRESH).await;
-            }
-        });
-    }
-
-    {
-        let state = state.clone();
-        tokio::spawn(async move {
-            loop {
-                if let Err(e) = run_websocket(&state).await {
-                    tracing::error!("websocket session ended: {e:#}");
-                }
-                tokio::time::sleep(Duration::from_secs(5)).await;
+                tokio::time::sleep(POLL_INTERVAL).await;
             }
         });
     }
@@ -159,6 +159,18 @@ async fn main() -> anyhow::Result<()> {
                     tracing::error!("refresh_returns failed: {e:#}");
                 }
                 tokio::time::sleep(RETURNS_REFRESH).await;
+            }
+        });
+    }
+
+    {
+        let state = state.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) = prune_old_quotes(&state).await {
+                    tracing::error!("prune_old_quotes failed: {e:#}");
+                }
+                tokio::time::sleep(RETENTION_SWEEP).await;
             }
         });
     }
@@ -185,7 +197,18 @@ async fn dashboard_3x() -> Html<&'static str> {
     Html(FRONTEND_3X)
 }
 
-async fn refresh_prev_closes(state: &AppState) -> anyhow::Result<()> {
+fn parse_num(v: &Value) -> Option<f64> {
+    if let Some(s) = v.as_str() {
+        s.parse::<f64>().ok()
+    } else {
+        v.as_f64()
+    }
+}
+
+// Single batched snapshot call for every tracked symbol, every 2 minutes.
+// Each snapshot carries its own previous-close, so change/% is computed
+// fresh each poll with no separate cached baseline needed.
+async fn poll_quotes(state: &AppState) -> anyhow::Result<()> {
     let symbols = TICKERS.iter().map(|(s, _)| *s).collect::<Vec<_>>().join(",");
     let url = format!("{ALPACA_DATA_BASE}/stocks/snapshots?symbols={symbols}&feed=iex");
     let resp: Value = state
@@ -202,82 +225,54 @@ async fn refresh_prev_closes(state: &AppState) -> anyhow::Result<()> {
         anyhow::bail!("unexpected snapshots response: {resp}");
     };
 
-    // Collect everything we need from the response first, then update the
-    // shared map and touch the DB without holding the write lock across
-    // those awaits (which would otherwise block the WS handler's reads for
-    // the whole loop).
-    struct Seed<'a> {
-        symbol: &'a str,
-        close: f64,
-        price: Option<f64>,
-        volume: Option<i64>,
-    }
-    let seeds: Vec<Seed> = obj
-        .iter()
-        .filter_map(|(symbol, snapshot)| {
-            let close = snapshot
-                .get("prevDailyBar")
-                .and_then(|b| b.get("c"))
-                .and_then(|c| c.as_f64())?;
-            let price = snapshot
-                .get("latestTrade")
-                .and_then(|t| t.get("p"))
-                .and_then(|p| p.as_f64());
-            let volume = snapshot
-                .get("dailyBar")
-                .and_then(|b| b.get("v"))
-                .and_then(|v| v.as_i64());
-            Some(Seed { symbol, close, price, volume })
-        })
-        .collect();
+    let mut polled = 0;
+    for (symbol, snapshot) in obj {
+        let close = snapshot
+            .get("prevDailyBar")
+            .and_then(|b| b.get("c"))
+            .and_then(parse_num);
+        let price = snapshot
+            .get("latestTrade")
+            .and_then(|t| t.get("p"))
+            .and_then(parse_num);
+        let volume = snapshot
+            .get("dailyBar")
+            .and_then(|b| b.get("v"))
+            .and_then(parse_num)
+            .map(|v| v as i64);
 
-    {
-        let mut map = state.prev_close.write().await;
-        for seed in &seeds {
-            map.insert(seed.symbol.to_string(), seed.close);
-        }
-    }
-
-    let mut seeded = 0;
-    for seed in &seeds {
-        let already_tracked = state
-            .db
-            .call({
-                let symbol = seed.symbol.to_string();
-                move |conn| {
-                    let exists: i64 = conn.query_row(
-                        "SELECT COUNT(*) FROM quotes WHERE symbol = ?1",
-                        rusqlite::params![symbol],
-                        |r| r.get(0),
-                    )?;
-                    Ok::<_, tokio_rusqlite::Error>(exists > 0)
-                }
-            })
-            .await
-            .unwrap_or(false);
-        if already_tracked {
+        let (Some(close), Some(price)) = (close, price) else {
             continue;
-        }
+        };
+        let change = price - close;
+        let percent_change = if close > 0.0 { (change / close) * 100.0 } else { 0.0 };
 
-        // Seed a quote row from the last trade so the dashboard has real
-        // data immediately, rather than sitting empty until the next live
-        // tick (which only arrives during market hours).
-        let Some(price) = seed.price else { continue };
-        let change = price - seed.close;
-        let percent_change = if seed.close > 0.0 { (change / seed.close) * 100.0 } else { 0.0 };
         if let Err(e) =
-            insert_quote_with_volume(state, seed.symbol, price, change, percent_change, seed.volume).await
+            insert_quote_with_volume(state, symbol, price, change, percent_change, volume).await
         {
-            tracing::warn!("failed to seed quote for {}: {e:#}", seed.symbol);
+            tracing::warn!("failed to record quote for {symbol}: {e:#}");
         } else {
-            seeded += 1;
+            polled += 1;
         }
     }
 
-    if seeded > 0 {
-        tracing::info!("seeded {seeded} initial quotes from last-trade snapshot");
-    }
-    tracing::info!("refreshed previous-close baseline for {} symbols", seeds.len());
+    tracing::info!("polled {polled} symbols");
+    Ok(())
+}
+
+async fn prune_old_quotes(state: &AppState) -> anyhow::Result<()> {
+    let cutoff = chrono::Utc::now().timestamp() - RETENTION_DAYS * 86_400;
+    let deleted = state
+        .db
+        .call(move |conn| {
+            let deleted = conn.execute("DELETE FROM quotes WHERE ts < ?1", rusqlite::params![cutoff])?;
+            // Reclaims freed pages incrementally rather than a full VACUUM,
+            // which would need an exclusive lock over the whole file.
+            conn.execute_batch("PRAGMA incremental_vacuum;")?;
+            Ok::<_, tokio_rusqlite::Error>(deleted)
+        })
+        .await?;
+    tracing::info!("pruned {deleted} quote rows older than {RETENTION_DAYS}d");
     Ok(())
 }
 
@@ -293,7 +288,7 @@ async fn refresh_returns(state: &AppState) -> anyhow::Result<()> {
     let end = chrono::Utc::now().date_naive();
     let start = end - chrono::Duration::days(200);
 
-    let mut closes_by_symbol: HashMap<String, Vec<f64>> = HashMap::new();
+    let mut closes_by_symbol: std::collections::HashMap<String, Vec<f64>> = std::collections::HashMap::new();
     let mut page_token: Option<String> = None;
 
     loop {
@@ -366,16 +361,6 @@ async fn refresh_returns(state: &AppState) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn insert_quote(
-    state: &AppState,
-    symbol: &str,
-    price: f64,
-    change: f64,
-    percent_change: f64,
-) -> anyhow::Result<()> {
-    insert_quote_with_volume(state, symbol, price, change, percent_change, None).await
-}
-
 async fn insert_quote_with_volume(
     state: &AppState,
     symbol: &str,
@@ -396,87 +381,6 @@ async fn insert_quote_with_volume(
             Ok(())
         })
         .await?;
-    Ok(())
-}
-
-async fn run_websocket(state: &AppState) -> anyhow::Result<()> {
-    // Make sure we have a previous-close baseline before ticks start
-    // arriving, so the very first prints can compute a real change/%.
-    if state.prev_close.read().await.is_empty() {
-        if let Err(e) = refresh_prev_closes(state).await {
-            tracing::warn!("initial prev-close fetch failed, will retry on schedule: {e:#}");
-        }
-    }
-
-    let (ws_stream, _) = tokio_tungstenite::connect_async(ALPACA_WS_URL).await?;
-    let (mut write, mut read) = ws_stream.split();
-
-    let auth = serde_json::json!({
-        "action": "auth",
-        "key": state.key_id,
-        "secret": state.secret_key,
-    });
-    write.send(Message::Text(auth.to_string())).await?;
-
-    let symbols: Vec<&str> = TICKERS.iter().map(|(s, _)| *s).collect();
-    let subscribe = serde_json::json!({
-        "action": "subscribe",
-        "trades": symbols,
-    });
-    write.send(Message::Text(subscribe.to_string())).await?;
-    tracing::info!("alpaca websocket connected, subscribed to {} symbols", symbols.len());
-
-    let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
-    ping_interval.tick().await;
-
-    loop {
-        tokio::select! {
-            msg = read.next() => {
-                let Some(msg) = msg else {
-                    anyhow::bail!("websocket stream closed");
-                };
-                match msg? {
-                    Message::Text(text) => {
-                        if let Err(e) = handle_ws_payload(state, &text).await {
-                            tracing::warn!("failed to handle ws payload: {e:#}");
-                        }
-                    }
-                    Message::Close(_) => anyhow::bail!("websocket closed by server"),
-                    _ => {}
-                }
-            }
-            _ = ping_interval.tick() => {
-                write.send(Message::Ping(vec![])).await?;
-            }
-        }
-    }
-}
-
-async fn handle_ws_payload(state: &AppState, text: &str) -> anyhow::Result<()> {
-    let events: Vec<Value> = serde_json::from_str(text)?;
-    for event in events {
-        let msg_type = event.get("T").and_then(|t| t.as_str());
-        match msg_type {
-            Some("t") => {
-                let Some(symbol) = event.get("S").and_then(|s| s.as_str()) else { continue };
-                let Some(price) = event.get("p").and_then(|p| p.as_f64()) else { continue };
-
-                let prev_close = state.prev_close.read().await.get(symbol).copied();
-                let (change, percent_change) = match prev_close {
-                    Some(prev) if prev > 0.0 => (price - prev, ((price - prev) / prev) * 100.0),
-                    _ => (0.0, 0.0),
-                };
-
-                if let Err(e) = insert_quote(state, symbol, price, change, percent_change).await {
-                    tracing::warn!("failed to record trade tick for {symbol}: {e:#}");
-                }
-            }
-            Some("error") => {
-                tracing::warn!("alpaca ws error event: {event}");
-            }
-            _ => {}
-        }
-    }
     Ok(())
 }
 
@@ -596,15 +500,52 @@ async fn api_history(
 }
 
 #[derive(Serialize)]
+struct ReturnsRow {
+    symbol: String,
+    name: String,
+    day_pct: Option<f64>,
+    week_pct: Option<f64>,
+    month_pct: Option<f64>,
+    six_month_pct: Option<f64>,
+}
+
+#[derive(Serialize)]
 struct ReturnsResponse {
     as_of: i64,
-    rows: Vec<ReturnsOut>,
+    rows: Vec<ReturnsRow>,
 }
 
 async fn api_returns(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let cache = state.returns_cache.read().await;
-    Json(ReturnsResponse {
-        as_of: cache.as_of,
-        rows: cache.rows.clone(),
-    })
+    let mut rows = Vec::with_capacity(cache.rows.len());
+
+    for r in &cache.rows {
+        let symbol_owned = r.symbol.clone();
+        let day_pct = state
+            .db
+            .call(move |conn| {
+                let val = conn
+                    .query_row(
+                        "SELECT percent_change FROM quotes WHERE symbol = ?1 ORDER BY ts DESC LIMIT 1",
+                        rusqlite::params![symbol_owned],
+                        |row| row.get::<_, f64>(0),
+                    )
+                    .ok();
+                Ok::<_, tokio_rusqlite::Error>(val)
+            })
+            .await
+            .ok()
+            .flatten();
+
+        rows.push(ReturnsRow {
+            symbol: r.symbol.clone(),
+            name: r.name.clone(),
+            day_pct,
+            week_pct: r.week_pct,
+            month_pct: r.month_pct,
+            six_month_pct: r.six_month_pct,
+        });
+    }
+
+    Json(ReturnsResponse { as_of: cache.as_of, rows })
 }
