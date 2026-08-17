@@ -132,6 +132,76 @@
 
   main { max-width: 1280px; margin: 0 auto; padding: 28px; position: relative; }
 
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab-btn {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    padding: 10px 4px;
+    margin-right: 20px;
+    cursor: pointer;
+    position: relative;
+    top: 1px;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s ease;
+  }
+  .tab-btn:hover { color: var(--text-dim); }
+  .tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .tab-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .returns-note {
+    font-size: 0.72rem;
+    color: var(--text-faint);
+    margin: 0 0 16px;
+  }
+  .returns-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+  }
+  .returns-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.85rem;
+  }
+  .returns-table th, .returns-table td {
+    padding: 11px 16px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .returns-table th {
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    border-bottom: 1px solid var(--border);
+    font-weight: 400;
+  }
+  .returns-table th.num, .returns-table td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .returns-table tbody tr { border-bottom: 1px solid var(--border); }
+  .returns-table tbody tr:last-child { border-bottom: none; }
+  .returns-table tbody tr:hover { background: var(--surface-hi); }
+  .returns-table td.name { color: var(--text-dim); font-size: 0.78rem; }
+  .returns-table td.up { color: var(--up); }
+  .returns-table td.down { color: var(--down); }
+  .returns-table .sym-cell { display: flex; align-items: center; gap: 8px; }
+
   .sentiment {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -322,26 +392,51 @@
   </header>
 
   <main>
-    <div class="sentiment" id="sentiment">
-      <div class="sent-stat">
-        <span class="sent-label">Avg 24h return</span>
-        <span class="sent-val mono num" id="sent-avg">--</span>
-      </div>
-      <div class="sent-stat">
-        <span class="sent-label">Top mover</span>
-        <span class="sent-val mono num" id="sent-top">--</span>
-      </div>
-      <div class="sent-stat">
-        <span class="sent-label">Tracked tickers</span>
-        <span class="sent-val mono num" id="sent-count">--</span>
-      </div>
-      <div class="sent-stat">
-        <span class="sent-label">Dashboard refresh</span>
-        <span class="sent-val mono num" id="sent-next">--</span>
-      </div>
+    <div class="tabs" role="tablist">
+      <button class="tab-btn active" id="tab-btn-live" role="tab" aria-selected="true">Live</button>
+      <button class="tab-btn" id="tab-btn-returns" role="tab" aria-selected="false">Returns</button>
     </div>
 
-    <div id="groups"></div>
+    <div id="tab-live">
+      <div class="sentiment" id="sentiment">
+        <div class="sent-stat">
+          <span class="sent-label">Avg 24h return</span>
+          <span class="sent-val mono num" id="sent-avg">--</span>
+        </div>
+        <div class="sent-stat">
+          <span class="sent-label">Top mover</span>
+          <span class="sent-val mono num" id="sent-top">--</span>
+        </div>
+        <div class="sent-stat">
+          <span class="sent-label">Tracked tickers</span>
+          <span class="sent-val mono num" id="sent-count">--</span>
+        </div>
+        <div class="sent-stat">
+          <span class="sent-label">Dashboard refresh</span>
+          <span class="sent-val mono num" id="sent-next">--</span>
+        </div>
+      </div>
+
+      <div id="groups"></div>
+    </div>
+
+    <div id="tab-returns" hidden>
+      <p class="returns-note mono">1-week / 1-month / 6-month price change, split-adjusted, refreshed once daily &middot; as of <span id="returns-asof">--</span></p>
+      <div class="returns-table-wrap">
+        <table class="returns-table">
+          <thead>
+            <tr>
+              <th>Fund</th>
+              <th>Tracks</th>
+              <th class="num">1W</th>
+              <th class="num">1M</th>
+              <th class="num">6M</th>
+            </tr>
+          </thead>
+          <tbody id="returns-body"></tbody>
+        </table>
+      </div>
+    </div>
   </main>
 
   <footer>
@@ -597,6 +692,70 @@ setInterval(() => {
   nextPollAt = Date.now() + 30_000;
 }, 30_000);
 setInterval(() => TICKERS.forEach(loadHistory), 60_000);
+
+// --- Returns tab ---
+
+function fmtAsOf(unixTs) {
+  if (!unixTs) return "--";
+  return new Date(unixTs * 1000).toLocaleString(undefined, {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+async function loadReturns() {
+  try {
+    const res = await fetch("/stocks/3x/api/returns");
+    if (!res.ok) throw new Error("bad response");
+    const data = await res.json();
+    document.getElementById("returns-asof").textContent = fmtAsOf(data.as_of);
+
+    const bySymbol = Object.fromEntries(data.rows.map(r => [r.symbol, r]));
+    const body = document.getElementById("returns-body");
+    body.innerHTML = "";
+
+    GROUPS.forEach(group => {
+      group.symbols.forEach(symbol => {
+        const r = bySymbol[symbol];
+        if (!r) return;
+        const inverse = INVERSE.has(symbol);
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>
+            <span class="sym-cell">
+              <span class="tc-symbol mono">${symbol}</span>
+              <span class="direction-tag mono ${inverse ? "inverse" : "bull"}">${inverse ? "&minus;3x" : "3x"}</span>
+            </span>
+          </td>
+          <td class="name">${r.name}</td>
+          <td class="num ${upDown(r.week_pct ?? 0)}">${fmtPct(r.week_pct)}</td>
+          <td class="num ${upDown(r.month_pct ?? 0)}">${fmtPct(r.month_pct)}</td>
+          <td class="num ${upDown(r.six_month_pct ?? 0)}">${fmtPct(r.six_month_pct)}</td>
+        `;
+        body.appendChild(tr);
+      });
+    });
+  } catch (e) { /* transient network error, next refresh retries */ }
+}
+
+loadReturns();
+setInterval(loadReturns, 5 * 60_000);
+
+const tabLive = document.getElementById("tab-live");
+const tabReturns = document.getElementById("tab-returns");
+const tabBtnLive = document.getElementById("tab-btn-live");
+const tabBtnReturns = document.getElementById("tab-btn-returns");
+
+function showTab(name) {
+  const isLive = name === "live";
+  tabLive.hidden = !isLive;
+  tabReturns.hidden = isLive;
+  tabBtnLive.classList.toggle("active", isLive);
+  tabBtnReturns.classList.toggle("active", !isLive);
+  tabBtnLive.setAttribute("aria-selected", String(isLive));
+  tabBtnReturns.setAttribute("aria-selected", String(!isLive));
+}
+tabBtnLive.addEventListener("click", () => showTab("live"));
+tabBtnReturns.addEventListener("click", () => showTab("returns"));
 </script>
 </body>
 </html>

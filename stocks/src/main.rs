@@ -44,6 +44,9 @@ const ALPACA_DATA_BASE: &str = "https://data.alpaca.markets/v2";
 // close is fetched separately and refreshed on this interval to track the
 // new trading day's baseline.
 const PREV_CLOSE_REFRESH: Duration = Duration::from_secs(6 * 3600);
+// 1w/1m/6m returns only meaningfully shift once per trading day, so a daily
+// refresh of the historical-bars snapshot is plenty.
+const RETURNS_REFRESH: Duration = Duration::from_secs(24 * 3600);
 
 struct AppState {
     db: Connection,
@@ -51,6 +54,22 @@ struct AppState {
     key_id: String,
     secret_key: String,
     prev_close: RwLock<HashMap<String, f64>>,
+    returns_cache: RwLock<ReturnsCache>,
+}
+
+#[derive(Default)]
+struct ReturnsCache {
+    as_of: i64,
+    rows: Vec<ReturnsOut>,
+}
+
+#[derive(Serialize, Clone)]
+struct ReturnsOut {
+    symbol: String,
+    name: String,
+    week_pct: Option<f64>,
+    month_pct: Option<f64>,
+    six_month_pct: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -105,6 +124,7 @@ async fn main() -> anyhow::Result<()> {
         key_id,
         secret_key,
         prev_close: RwLock::new(HashMap::new()),
+        returns_cache: RwLock::new(ReturnsCache::default()),
     });
 
     {
@@ -131,11 +151,24 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    {
+        let state = state.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) = refresh_returns(&state).await {
+                    tracing::error!("refresh_returns failed: {e:#}");
+                }
+                tokio::time::sleep(RETURNS_REFRESH).await;
+            }
+        });
+    }
+
     let app = Router::new()
         .route("/stocks", get(index))
         .route("/stocks/3x", get(dashboard_3x))
         .route("/stocks/3x/api/quotes", get(api_quotes))
         .route("/stocks/3x/api/history/:symbol", get(api_history))
+        .route("/stocks/3x/api/returns", get(api_returns))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
@@ -245,6 +278,91 @@ async fn refresh_prev_closes(state: &AppState) -> anyhow::Result<()> {
         tracing::info!("seeded {seeded} initial quotes from last-trade snapshot");
     }
     tracing::info!("refreshed previous-close baseline for {} symbols", seeds.len());
+    Ok(())
+}
+
+// Fetches ~200 calendar days of split-adjusted daily bars (comfortably
+// covers 6 months of trading days) and computes 1-week/1-month/6-month %
+// change per symbol. The multi-symbol bars endpoint paginates via
+// next_page_token and its `limit` caps bars across ALL symbols combined,
+// not per-symbol -- skipping pagination silently truncates later symbols.
+// Prices must be split-adjusted (adjustment=split) or a leveraged inverse
+// fund's reverse split reads as an enormous fake gain.
+async fn refresh_returns(state: &AppState) -> anyhow::Result<()> {
+    let symbols = TICKERS.iter().map(|(s, _)| *s).collect::<Vec<_>>().join(",");
+    let end = chrono::Utc::now().date_naive();
+    let start = end - chrono::Duration::days(200);
+
+    let mut closes_by_symbol: HashMap<String, Vec<f64>> = HashMap::new();
+    let mut page_token: Option<String> = None;
+
+    loop {
+        let mut url = format!(
+            "{ALPACA_DATA_BASE}/stocks/bars?symbols={symbols}&timeframe=1Day&start={start}&end={end}&feed=iex&limit=10000&adjustment=split"
+        );
+        if let Some(token) = &page_token {
+            url.push_str(&format!("&page_token={token}"));
+        }
+        let resp: Value = state
+            .client
+            .get(&url)
+            .header("APCA-API-KEY-ID", &state.key_id)
+            .header("APCA-API-SECRET-KEY", &state.secret_key)
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if let Some(bars) = resp.get("bars").and_then(|b| b.as_object()) {
+            for (symbol, arr) in bars {
+                let entry = closes_by_symbol.entry(symbol.clone()).or_default();
+                if let Some(arr) = arr.as_array() {
+                    for bar in arr {
+                        if let Some(c) = bar.get("c").and_then(|c| c.as_f64()) {
+                            entry.push(c);
+                        }
+                    }
+                }
+            }
+        }
+
+        page_token = resp.get("next_page_token").and_then(|t| t.as_str()).map(String::from);
+        if page_token.is_none() {
+            break;
+        }
+    }
+
+    fn pct_change(closes: &[f64], trading_days_ago: usize) -> Option<f64> {
+        if closes.len() <= trading_days_ago {
+            return None;
+        }
+        let latest = closes[closes.len() - 1];
+        let past = closes[closes.len() - 1 - trading_days_ago];
+        if past == 0.0 {
+            return None;
+        }
+        Some((latest - past) / past * 100.0)
+    }
+
+    let rows: Vec<ReturnsOut> = TICKERS
+        .iter()
+        .map(|(symbol, name)| {
+            let closes = closes_by_symbol.get(*symbol).map(Vec::as_slice).unwrap_or(&[]);
+            let six_month_days = closes.len().saturating_sub(1).min(126);
+            ReturnsOut {
+                symbol: symbol.to_string(),
+                name: name.to_string(),
+                week_pct: pct_change(closes, 5),
+                month_pct: pct_change(closes, 21),
+                six_month_pct: pct_change(closes, six_month_days),
+            }
+        })
+        .collect();
+
+    let mut cache = state.returns_cache.write().await;
+    cache.as_of = chrono::Utc::now().timestamp();
+    cache.rows = rows;
+    tracing::info!("refreshed 1w/1m/6m returns for {} symbols", cache.rows.len());
     Ok(())
 }
 
@@ -475,4 +593,18 @@ async fn api_history(
     let mut points = points;
     points.reverse();
     (StatusCode::OK, Json(points))
+}
+
+#[derive(Serialize)]
+struct ReturnsResponse {
+    as_of: i64,
+    rows: Vec<ReturnsOut>,
+}
+
+async fn api_returns(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let cache = state.returns_cache.read().await;
+    Json(ReturnsResponse {
+        as_of: cache.as_of,
+        rows: cache.rows.clone(),
+    })
 }
