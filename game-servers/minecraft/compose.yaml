@@ -14,6 +14,11 @@ services:
       API_BINDING: ":8080"
       METRICS_BACKEND: prometheus
       RECORD_LOGINS: true
+    # mc-router's image moved to a non-root distroless user (uid 65532) at
+    # some point without a version bump on the "latest" tag - it needs the
+    # host's docker group to actually read/write the socket mounted below
+    group_add:
+      - "${DOCKER_GID:-988}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
@@ -50,6 +55,7 @@ services:
       - /srv/docker/game-servers/minecraft/forever/data:/data
     networks:
       - edge
+    restart: unless-stopped
   atm10:
     # ATM10 targets MC 1.21 / NeoForge, which wants Java 21
     image: itzg/minecraft-server:java21
