@@ -31,12 +31,21 @@ services:
       - PEERPORT=${TRANSMISSION_PEER_PORT}
     volumes:
       - /srv/docker/media/transmission/data:/config
-      # downloads stage on local disk, not NFS - Transmission's constant
-      # write-then-hash-verify cycle during active downloading was silently
-      # failing every single piece verification over the /mnt/media NFS
-      # mount (likely a read-after-write cache consistency issue), even
-      # though bytes were genuinely landing on disk. Local disk sidesteps
-      # this; Sonarr/Radarr still see /mnt/media for the final library.
+      # Active downloads (both incomplete-dir and download-dir, set via
+      # Transmission's own settings.json, not here) now go straight to
+      # /mnt/media/downloads-staging - a dedicated ZFS dataset on TrueNAS
+      # (atime=off, sync=disabled, recordsize=64K) mounted with
+      # noac/actimeo=0. This replaced local-disk staging on 2026-08-17.
+      # The original local-disk move (comment removed) was a workaround for
+      # an NFS read-after-write cache-consistency bug that made piece
+      # verification silently fail forever. That bug's root cause was never
+      # found; this migration proceeded anyway per explicit direction after
+      # the risk was disclosed. A real, reproducible full-daemon hang (RPC
+      # unresponsive, unkillable, required a forced NFS unmount to recover)
+      # was hit once during testing on this same tuned config - see
+      # scripts/transmission-watchdog.sh, which auto-recovers via the same
+      # forced-unmount sequence if it happens again in production.
+      # downloads-local kept mounted as a fallback path, not actively used.
       - /srv/docker/media/downloads-local:/downloads
       - /mnt/media:/mnt/media
 
@@ -63,8 +72,10 @@ services:
       - TZ=${TZ}
     volumes:
       - /srv/docker/media/sonarr/data:/config
-      # same local downloads mount as transmission, at the same container
-      # path, so Sonarr can see and import files transmission reports
+      # Same mounts as transmission at the same container paths, so Sonarr
+      # can see files at whatever path transmission reports (now
+      # /mnt/media/downloads-staging - see transmission's own volume
+      # comment above). downloads-local kept as an unused fallback.
       - /srv/docker/media/downloads-local:/downloads
       - /mnt/media:/mnt/media
     networks:
@@ -80,8 +91,10 @@ services:
       - TZ=${TZ}
     volumes:
       - /srv/docker/media/radarr/data:/config
-      # same local downloads mount as transmission, at the same container
-      # path, so Radarr can see and import files transmission reports
+      # Same mounts as transmission at the same container paths, so Radarr
+      # can see files at whatever path transmission reports (now
+      # /mnt/media/downloads-staging - see transmission's own volume
+      # comment above). downloads-local kept as an unused fallback.
       - /srv/docker/media/downloads-local:/downloads
       - /mnt/media:/mnt/media
     networks:
