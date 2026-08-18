@@ -32,19 +32,21 @@ services:
     volumes:
       - /srv/docker/media/transmission/data:/config
       # Active downloads (both incomplete-dir and download-dir, set via
-      # Transmission's own settings.json, not here) now go straight to
-      # /mnt/media/downloads-staging - a dedicated ZFS dataset on TrueNAS
-      # (atime=off, sync=disabled, recordsize=64K) mounted with
-      # noac/actimeo=0. This replaced local-disk staging on 2026-08-17.
-      # The original local-disk move (comment removed) was a workaround for
-      # an NFS read-after-write cache-consistency bug that made piece
-      # verification silently fail forever. That bug's root cause was never
-      # found; this migration proceeded anyway per explicit direction after
-      # the risk was disclosed. A real, reproducible full-daemon hang (RPC
-      # unresponsive, unkillable, required a forced NFS unmount to recover)
-      # was hit once during testing on this same tuned config - see
+      # Transmission's own settings.json, not here) go to
+      # /mnt/media/downloads-staging and /mnt/media/downloads-complete -
+      # dedicated ZFS datasets on TrueNAS (atime=off, sync=disabled) so a
+      # completed download lands via one clean sequential write instead of
+      # accumulating COW fragmentation from in-place torrent piece writes.
+      # First attempted 2026-08-17, reverted to local-disk staging after a
+      # real, reproducible full-daemon hang (RPC unresponsive, unkillable,
+      # required a forced NFS unmount to recover - see
       # scripts/transmission-watchdog.sh, which auto-recovers via the same
-      # forced-unmount sequence if it happens again in production.
+      # sequence if it happens again). Retried 2026-08-18 after fixing the
+      # two things that likely caused that: the local disk had also been
+      # completely full at the time, and Transmission's preallocation was
+      # set to "fast" (now "none") - full/fast preallocation over NFS can
+      # force real extra write I/O rather than a cheap sparse allocation.
+      # The NFS mount itself uses plain defaults, not noac/actimeo=0.
       # downloads-local kept mounted as a fallback path, not actively used.
       - /srv/docker/media/downloads-local:/downloads
       - /mnt/media:/mnt/media
@@ -99,6 +101,24 @@ services:
       - /mnt/media:/mnt/media
     networks:
       - edge
+
+  cleanuparr:
+    image: ghcr.io/cleanuparr/cleanuparr:latest
+    container_name: cleanuparr
+    restart: unless-stopped
+    environment:
+      - PORT=11011
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - /srv/docker/media/cleanuparr/data:/config
+    networks:
+      - edge
+    # Connects to Sonarr/Radarr (http://sonarr:8989, http://radarr:7878)
+    # and Transmission (http://gluetun:9091 - transmission itself has no
+    # network of its own, see network_mode above) via its own web UI after
+    # first boot, not via env vars here.
 
   # plex: migrated 2026-08-17 to a dedicated LXC (10.21.2.68) on wontwon for
   # real NVIDIA GPU passthrough (RTX 3060 Ti) - not possible for a container
