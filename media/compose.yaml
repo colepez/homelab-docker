@@ -113,6 +113,11 @@ services:
       - TZ=${TZ}
     volumes:
       - /srv/docker/media/cleanuparr/data:/config
+      # Same paths as transmission/sonarr/radarr (see transmission's own
+      # volume comment above) - orphaned-files scanning needs to see the
+      # actual download directories, not just talk to the API.
+      - /srv/docker/media/downloads-local:/downloads
+      - /mnt/media:/mnt/media
     networks:
       - edge
     # Connects to Sonarr/Radarr (http://sonarr:8989, http://radarr:7878)
