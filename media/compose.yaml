@@ -50,6 +50,24 @@ services:
       # downloads-local kept mounted as a fallback path, not actively used.
       - /srv/docker/media/downloads-local:/downloads
       - /mnt/media:/mnt/media
+    labels:
+      - autoheal=true
+    healthcheck:
+      # Added 2026-08-19 after a recurring failure mode where the daemon's
+      # process died in a way Docker's own restart:unless-stopped policy
+      # never noticed (docker ps kept showing "Up" for over an hour on a
+      # stale/reused PID - docker restart/kill/rm -f all failed with "tried
+      # to kill container, but did not receive an exit event"). A real HTTP
+      # healthcheck plus the autoheal sidecar below is what actually
+      # recovers from this, since the native restart policy only fires on
+      # a clean process exit. Accepts any real HTTP response (including the
+      # normal 409 CSRF-required response) as evidence the daemon is alive -
+      # a fixed 200-only check would false-positive-fail on a healthy RPC.
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:9091/transmission/rpc | grep -qv '^000$'"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
@@ -82,6 +100,17 @@ services:
       - /mnt/media:/mnt/media
     networks:
       - edge
+    labels:
+      - autoheal=true
+    healthcheck:
+      # Same recurring zombie-daemon failure mode as transmission (see its
+      # healthcheck comment above) hit Sonarr too. /ping is Sonarr's own
+      # unauthenticated liveness endpoint - no API key needed here.
+      test: ["CMD-SHELL", "curl -sf http://localhost:8989/ping -o /dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   radarr:
     image: lscr.io/linuxserver/radarr:latest
@@ -101,6 +130,17 @@ services:
       - /mnt/media:/mnt/media
     networks:
       - edge
+    labels:
+      - autoheal=true
+    healthcheck:
+      # Same recurring zombie-daemon failure mode as transmission/sonarr
+      # (see transmission's healthcheck comment above) hit Radarr too.
+      # /ping is Radarr's own unauthenticated liveness endpoint.
+      test: ["CMD-SHELL", "curl -sf http://localhost:7878/ping -o /dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   cleanuparr:
     image: ghcr.io/cleanuparr/cleanuparr:latest
@@ -124,6 +164,42 @@ services:
     # and Transmission (http://gluetun:9091 - transmission itself has no
     # network of its own, see network_mode above) via its own web UI after
     # first boot, not via env vars here.
+    labels:
+      - autoheal=true
+    healthcheck:
+      # No known unauthenticated liveness endpoint for cleanuparr - just
+      # confirms its web server answers at all (any real HTTP status, not
+      # a connection failure), same pattern as transmission's check above.
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:11011/ | grep -qv '^000$'"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  autoheal:
+    # Added 2026-08-19 alongside the healthchecks above. A Docker
+    # HEALTHCHECK marks a container "unhealthy" but does NOT restart it on
+    # its own - restart:unless-stopped only fires on a clean process exit,
+    # which is exactly what didn't happen in tonight's incident. Autoheal
+    # watches for the unhealthy status and issues the restart. Scoped via
+    # AUTOHEAL_CONTAINER_LABEL to only the 4 services labeled autoheal=true
+    # above, not every container on the host.
+    #
+    # This does require read access to the Docker socket, which is
+    # effectively host-root-equivalent access - the same tradeoff already
+    # accepted for Portainer's own agent on this host, not a new class of
+    # risk. Deliberately not using the tecnativa socket-proxy pattern from
+    # the Wazuh docker-listener setup here, since that proxy doesn't
+    # support scoping the restart operation autoheal needs - only read
+    # endpoints are individually toggleable there.
+    image: willfarrell/autoheal:latest
+    container_name: autoheal
+    restart: unless-stopped
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=autoheal
+      - AUTOHEAL_INTERVAL=30
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
 
   # plex: migrated 2026-08-17 to a dedicated LXC (10.21.2.68) on wontwon for
   # real NVIDIA GPU passthrough (RTX 3060 Ti) - not possible for a container
