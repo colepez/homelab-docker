@@ -4,10 +4,12 @@ services:
     restart: unless-stopped
     environment:
       IN_DOCKER: true
-      # router-wide default stays off (zinnberlycraft/foreverworld haven't
-      # opted in) - atm10 overrides it back on via its own
-      # mc-router.auto-scale-down label now that its Chunky pregen is done
-      AUTO_SCALE_DOWN: false
+      # enabled 2026-08-19: the router-wide switch was previously off, which
+      # meant auto-scale-down never actually ran for any backend - including
+      # atm10, whose mc-router.auto-scale-down label only takes effect once
+      # this global flag is also on. Now on for all three servers so idle
+      # backends stop after AUTO_SCALE_DOWN_AFTER instead of staying up 24/7.
+      AUTO_SCALE_DOWN: true
       AUTO_SCALE_UP: true
       AUTO_SCALE_DOWN_AFTER: 2h
       AUTO_SCALE_ASLEEP_MOTD: "Server is asleep. Join again to wake it up!"
