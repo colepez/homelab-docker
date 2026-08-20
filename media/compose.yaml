@@ -11,26 +11,19 @@ services:
       - TZ=${TZ}
       # Switched from Mullvad to Proton VPN 2026-08-20, per Cole - Proton
       # supports port forwarding (Mullvad discontinued it in 2023), which
-      # matters for torrent swarm connectivity. Earlier attempts (see git
-      # history) tried reusing Cole's exported WireGuard private key
-      # directly - bound to one server, silently failed elsewhere - and
-      # then VPN_TYPE=wireguard with account credentials, which gluetun
-      # rejects outright ("Wireguard settings: private key is not set" -
-      # gluetun does not dynamically negotiate a WireGuard key from
-      # account credentials for any provider; OPENVPN_USER/PASSWORD is
-      # for VPN_TYPE=openvpn only). Final: native protonvpn mode over
-      # OpenVPN using Cole's Proton account username (+pmp modifier
-      # suffix to request a port-forward-capable connection) and
-      # password - gluetun negotiates the OpenVPN session itself, no
-      # static key needed. Old MULLVAD_*/PROTON_WIREGUARD_* vars are left
-      # in Portainer's env store, unused, as a rollback/reference path -
-      # not deleted.
-      - VPN_SERVICE_PROVIDER=protonvpn
-      - VPN_TYPE=openvpn
-      - VPN_PORT_FORWARDING=on
-      - SERVER_COUNTRIES=Netherlands
-      - OPENVPN_USER=${PROTON_OPENVPN_USER}
-      - OPENVPN_PASSWORD=${PROTON_OPENVPN_PASSWORD}
+      # matters for torrent swarm connectivity. Using VPN_SERVICE_PROVIDER=
+      # custom with an explicit endpoint/public key (rather than gluetun's
+      # native protonvpn provider mode) so it connects to the exact server
+      # Cole selected in the Proton app, not one gluetun picks itself.
+      # Old MULLVAD_* vars are left in Portainer's env store, unused, as a
+      # rollback path - not deleted.
+      - VPN_SERVICE_PROVIDER=custom
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=${PROTON_WIREGUARD_PRIVATE_KEY}
+      - WIREGUARD_ADDRESSES=${PROTON_WIREGUARD_ADDRESSES}
+      - WIREGUARD_PUBLIC_KEY=${PROTON_WIREGUARD_PUBLIC_KEY}
+      - WIREGUARD_ENDPOINT_IP=${PROTON_WIREGUARD_ENDPOINT_IP}
+      - WIREGUARD_ENDPOINT_PORT=${PROTON_WIREGUARD_ENDPOINT_PORT}
     networks:
       - edge
 
