@@ -35,13 +35,20 @@ services:
     # network namespace so it can reach both the tunnel gateway and
     # Transmission's RPC on localhost. See
     # colepez/docker:media/natpmp-forwarder/renew.sh for the script -
-    # alpine base, installs libnatpmp+curl at startup (not baked into a
-    # custom image, this is a small enough one-off that a Dockerfile
-    # felt like overkill).
+    # alpine base, installs libnatpmp+curl+iptables at startup (not baked
+    # into a custom image, this is a small enough one-off that a
+    # Dockerfile felt like overkill). NET_ADMIN needed to add/remove the
+    # matching iptables rule in gluetun's shared netfilter state each
+    # time the forwarded port changes - NAT-PMP alone only tells the VPN
+    # gateway to forward the port, it does not open gluetun's own
+    # firewall (confirmed via Transmission's port-test being false until
+    # this was added).
     image: alpine:latest
     container_name: natpmp-forwarder
     restart: unless-stopped
     network_mode: "service:gluetun"
+    cap_add:
+      - NET_ADMIN
     depends_on:
       - gluetun
     environment:
