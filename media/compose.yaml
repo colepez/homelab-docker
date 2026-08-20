@@ -13,20 +13,20 @@ services:
       # supports port forwarding (Mullvad discontinued it in 2023), which
       # matters for torrent swarm connectivity. Earlier attempts (see git
       # history) tried reusing Cole's exported WireGuard private key
-      # directly - that key is bound to the single server it was
-      # generated for, so it silently failed (no traffic) against any
-      # other server, and gluetun only runs its automated NAT-PMP
-      # port-forward client under native per-provider modes anyway, never
-      # VPN_SERVICE_PROVIDER=custom. Final: native protonvpn mode using
-      # Cole's Proton OpenVPN/WireGuard account username (with the +pmp
-      # modifier suffix to request a port-forward-capable connection) and
-      # password - gluetun negotiates its own WireGuard key against
-      # whichever Proton server it selects, rather than reusing a
-      # pre-exported one. Old MULLVAD_*/PROTON_WIREGUARD_* vars are left
+      # directly - bound to one server, silently failed elsewhere - and
+      # then VPN_TYPE=wireguard with account credentials, which gluetun
+      # rejects outright ("Wireguard settings: private key is not set" -
+      # gluetun does not dynamically negotiate a WireGuard key from
+      # account credentials for any provider; OPENVPN_USER/PASSWORD is
+      # for VPN_TYPE=openvpn only). Final: native protonvpn mode over
+      # OpenVPN using Cole's Proton account username (+pmp modifier
+      # suffix to request a port-forward-capable connection) and
+      # password - gluetun negotiates the OpenVPN session itself, no
+      # static key needed. Old MULLVAD_*/PROTON_WIREGUARD_* vars are left
       # in Portainer's env store, unused, as a rollback/reference path -
       # not deleted.
       - VPN_SERVICE_PROVIDER=protonvpn
-      - VPN_TYPE=wireguard
+      - VPN_TYPE=openvpn
       - VPN_PORT_FORWARDING=on
       - SERVER_COUNTRIES=Netherlands
       - OPENVPN_USER=${PROTON_OPENVPN_USER}
