@@ -27,6 +27,29 @@ services:
     networks:
       - edge
 
+  natpmp-forwarder:
+    # Speaks NAT-PMP directly to the Proton VPN gateway to get/renew a
+    # forwarded port, since gluetun's own automated port-forwarding does
+    # not run under VPN_SERVICE_PROVIDER=custom (see gluetun's own
+    # comment block above for why custom mode is used). Shares gluetun's
+    # network namespace so it can reach both the tunnel gateway and
+    # Transmission's RPC on localhost. See
+    # colepez/docker:media/natpmp-forwarder/renew.sh for the script -
+    # alpine base, installs libnatpmp+curl at startup (not baked into a
+    # custom image, this is a small enough one-off that a Dockerfile
+    # felt like overkill).
+    image: alpine:latest
+    container_name: natpmp-forwarder
+    restart: unless-stopped
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      - TRANSMISSION_PEER_PORT=${TRANSMISSION_PEER_PORT}
+    volumes:
+      - /srv/docker/media/natpmp-forwarder/renew.sh:/renew.sh:ro
+    entrypoint: ["/bin/sh", "/renew.sh"]
+
   transmission:
     image: lscr.io/linuxserver/transmission:latest
     container_name: transmission
