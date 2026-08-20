@@ -11,15 +11,20 @@ services:
       - TZ=${TZ}
       # Switched from Mullvad to Proton VPN 2026-08-20, per Cole - Proton
       # supports port forwarding (Mullvad discontinued it in 2023), which
-      # matters for torrent swarm connectivity. VPN_SERVICE_PROVIDER=custom
-      # was tried first but gluetun's automated port-forwarding (NAT-PMP)
-      # is only wired up for its native per-provider modes, not "custom" -
-      # switched to VPN_SERVICE_PROVIDER=protonvpn with the same WireGuard
-      # keys/endpoint (still connects to the exact server Cole selected in
-      # the Proton app) plus VPN_PORT_FORWARDING=on to actually get a
-      # forwarded port. Old MULLVAD_* vars are left in Portainer's env
-      # store, unused, as a rollback path - not deleted.
-      - VPN_SERVICE_PROVIDER=protonvpn
+      # matters for torrent swarm connectivity. VPN_SERVICE_PROVIDER=
+      # protonvpn (gluetun's native mode) was tried but flatly rejects a
+      # manually set WireGuard endpoint ("Wireguard server selection
+      # settings: endpoint port is set") - and switching to a gluetun-
+      # selected server would mean using this private key against a
+      # different server than the one it was issued for by Proton, which
+      # is not expected to authenticate. Back to VPN_SERVICE_PROVIDER=
+      # custom with the exact endpoint/keys from Cole's exported config,
+      # now with VPN_PORT_FORWARDING=on added directly - testing whether
+      # gluetun's NAT-PMP port-forward client actually works in custom
+      # mode rather than assuming it does not. Old MULLVAD_* vars are
+      # left in Portainer's env store, unused, as a rollback path - not
+      # deleted.
+      - VPN_SERVICE_PROVIDER=custom
       - VPN_TYPE=wireguard
       - VPN_PORT_FORWARDING=on
       - WIREGUARD_PRIVATE_KEY=${PROTON_WIREGUARD_PRIVATE_KEY}
