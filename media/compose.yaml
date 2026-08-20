@@ -11,19 +11,26 @@ services:
       - TZ=${TZ}
       # Switched from Mullvad to Proton VPN 2026-08-20, per Cole - Proton
       # supports port forwarding (Mullvad discontinued it in 2023), which
-      # matters for torrent swarm connectivity. Using VPN_SERVICE_PROVIDER=
-      # custom with an explicit endpoint/public key (rather than gluetun's
-      # native protonvpn provider mode) so it connects to the exact server
-      # Cole selected in the Proton app, not one gluetun picks itself.
-      # Old MULLVAD_* vars are left in Portainer's env store, unused, as a
-      # rollback path - not deleted.
-      - VPN_SERVICE_PROVIDER=custom
+      # matters for torrent swarm connectivity. Earlier attempts (see git
+      # history) tried reusing Cole's exported WireGuard private key
+      # directly - that key is bound to the single server it was
+      # generated for, so it silently failed (no traffic) against any
+      # other server, and gluetun only runs its automated NAT-PMP
+      # port-forward client under native per-provider modes anyway, never
+      # VPN_SERVICE_PROVIDER=custom. Final: native protonvpn mode using
+      # Cole's Proton OpenVPN/WireGuard account username (with the +pmp
+      # modifier suffix to request a port-forward-capable connection) and
+      # password - gluetun negotiates its own WireGuard key against
+      # whichever Proton server it selects, rather than reusing a
+      # pre-exported one. Old MULLVAD_*/PROTON_WIREGUARD_* vars are left
+      # in Portainer's env store, unused, as a rollback/reference path -
+      # not deleted.
+      - VPN_SERVICE_PROVIDER=protonvpn
       - VPN_TYPE=wireguard
-      - WIREGUARD_PRIVATE_KEY=${PROTON_WIREGUARD_PRIVATE_KEY}
-      - WIREGUARD_ADDRESSES=${PROTON_WIREGUARD_ADDRESSES}
-      - WIREGUARD_PUBLIC_KEY=${PROTON_WIREGUARD_PUBLIC_KEY}
-      - WIREGUARD_ENDPOINT_IP=${PROTON_WIREGUARD_ENDPOINT_IP}
-      - WIREGUARD_ENDPOINT_PORT=${PROTON_WIREGUARD_ENDPOINT_PORT}
+      - VPN_PORT_FORWARDING=on
+      - SERVER_COUNTRIES=Netherlands
+      - OPENVPN_USER=${PROTON_OPENVPN_USER}
+      - OPENVPN_PASSWORD=${PROTON_OPENVPN_PASSWORD}
     networks:
       - edge
 
