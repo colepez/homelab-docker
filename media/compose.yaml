@@ -11,27 +11,29 @@ services:
       - TZ=${TZ}
       # Switched from Mullvad to Proton VPN 2026-08-20, per Cole - Proton
       # supports port forwarding (Mullvad discontinued it in 2023), which
-      # matters for torrent swarm connectivity. VPN_SERVICE_PROVIDER=
-      # protonvpn (gluetun's native mode) was tried but flatly rejects a
-      # manually set WireGuard endpoint ("Wireguard server selection
-      # settings: endpoint port is set") - and switching to a gluetun-
-      # selected server would mean using this private key against a
-      # different server than the one it was issued for by Proton, which
-      # is not expected to authenticate. Back to VPN_SERVICE_PROVIDER=
-      # custom with the exact endpoint/keys from Cole's exported config,
-      # now with VPN_PORT_FORWARDING=on added directly - testing whether
-      # gluetun's NAT-PMP port-forward client actually works in custom
-      # mode rather than assuming it does not. Old MULLVAD_* vars are
-      # left in Portainer's env store, unused, as a rollback path - not
-      # deleted.
-      - VPN_SERVICE_PROVIDER=custom
+      # matters for torrent swarm connectivity. Confirmed via direct
+      # testing (not assumption): gluetun's port forwarding only works
+      # for VPN_SERVICE_PROVIDER values "private internet access",
+      # "privatevpn", or "protonvpn" - never "custom"
+      # ("port forwarding cannot be enabled: value is not one of the
+      # possible choices"). Native protonvpn mode also flatly rejects a
+      # manually-set WireGuard endpoint. So: native protonvpn mode,
+      # gluetun picks the server itself via SERVER_COUNTRIES (matching
+      # the prior Mullvad Amsterdam preference), using only the private
+      # key + address from Cole's exported config - Proton, like most
+      # WireGuard-as-a-service VPNs, registers the account's WG public
+      # key centrally rather than per-server, so the same key is expected
+      # to authenticate against any of their servers, not just the one
+      # the config was originally generated against. Old MULLVAD_* vars
+      # and the unused PROTON_WIREGUARD_PUBLIC_KEY/ENDPOINT_IP/
+      # ENDPOINT_PORT vars are left in Portainer's env store, unused, as
+      # a rollback/reference path - not deleted.
+      - VPN_SERVICE_PROVIDER=protonvpn
       - VPN_TYPE=wireguard
       - VPN_PORT_FORWARDING=on
+      - SERVER_COUNTRIES=Netherlands
       - WIREGUARD_PRIVATE_KEY=${PROTON_WIREGUARD_PRIVATE_KEY}
       - WIREGUARD_ADDRESSES=${PROTON_WIREGUARD_ADDRESSES}
-      - WIREGUARD_PUBLIC_KEY=${PROTON_WIREGUARD_PUBLIC_KEY}
-      - WIREGUARD_ENDPOINT_IP=${PROTON_WIREGUARD_ENDPOINT_IP}
-      - WIREGUARD_ENDPOINT_PORT=${PROTON_WIREGUARD_ENDPOINT_PORT}
     networks:
       - edge
 
