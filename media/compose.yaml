@@ -9,11 +9,21 @@ services:
       - net.ipv4.conf.all.src_valid_mark=1
     environment:
       - TZ=${TZ}
-      - VPN_SERVICE_PROVIDER=mullvad
+      # Switched from Mullvad to Proton VPN 2026-08-20, per Cole - Proton
+      # supports port forwarding (Mullvad discontinued it in 2023), which
+      # matters for torrent swarm connectivity. Using VPN_SERVICE_PROVIDER=
+      # custom with an explicit endpoint/public key (rather than gluetun's
+      # native protonvpn provider mode) so it connects to the exact server
+      # Cole selected in the Proton app, not one gluetun picks itself.
+      # Old MULLVAD_* vars are left in Portainer's env store, unused, as a
+      # rollback path - not deleted.
+      - VPN_SERVICE_PROVIDER=custom
       - VPN_TYPE=wireguard
-      - WIREGUARD_PRIVATE_KEY=${MULLVAD_WIREGUARD_PRIVATE_KEY}
-      - WIREGUARD_ADDRESSES=${MULLVAD_WIREGUARD_ADDRESSES}
-      - SERVER_CITIES=${MULLVAD_SERVER_CITIES}
+      - WIREGUARD_PRIVATE_KEY=${PROTON_WIREGUARD_PRIVATE_KEY}
+      - WIREGUARD_ADDRESSES=${PROTON_WIREGUARD_ADDRESSES}
+      - WIREGUARD_PUBLIC_KEY=${PROTON_WIREGUARD_PUBLIC_KEY}
+      - WIREGUARD_ENDPOINT_IP=${PROTON_WIREGUARD_ENDPOINT_IP}
+      - WIREGUARD_ENDPOINT_PORT=${PROTON_WIREGUARD_ENDPOINT_PORT}
     networks:
       - edge
 
