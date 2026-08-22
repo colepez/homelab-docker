@@ -89,6 +89,36 @@ services:
     restart: unless-stopped
     networks:
       - edge
+  aeronautics:
+    # All the Mods 10: Aeronautics - NeoForge / MC 1.21.1, same java21 base
+    # image as atm10. This pack has no dedicated server-file download (unlike
+    # atm10's ServerFiles-7.1.zip), so it's fetched via AUTO_CURSEFORGE
+    # (CF_SLUG) instead - itzg's image builds the server pack itself from the
+    # client modpack manifest using Cole's CurseForge API key, mounted as the
+    # cf_api_key docker secret defined at the bottom of this file.
+    image: itzg/minecraft-server:java21
+    environment:
+      EULA: "TRUE"
+      TYPE: AUTO_CURSEFORGE
+      CF_SLUG: all-the-mods-10-aeronautics
+      CF_API_KEY_FILE: /run/secrets/cf_api_key
+      MOTD: "${AERONAUTICS_MOTD}"
+      VIEW_DISTANCE: "10"
+      DIFFICULTY: "normal"
+      ALLOW_FLIGHT: "TRUE"
+      MEMORY: "8G"
+      USE_AIKAR_FLAGS: "TRUE"
+      MAX_TICK_TIME: "-1"
+    mem_limit: 10g
+    secrets:
+      - cf_api_key
+    labels:
+      mc-router.host: "${AERONAUTICS_HOST}"
+    volumes:
+      - /srv/docker/game-servers/minecraft/aeronautics/data:/data
+    restart: unless-stopped
+    networks:
+      - edge
   # atm11:
   #   image: itzg/minecraft-server:java25
   #   environment:
