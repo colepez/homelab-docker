@@ -115,6 +115,13 @@ services:
       # commands (used for the Chunky pregen) without needing RCON.
       CREATE_CONSOLE_IN_PIPE: "true"
     mem_limit: 10g
+    # Excludes core 0, 2026-08-22 - that core is reserved exclusively for
+    # transmission (see media/compose.yaml) after this server's Chunky
+    # pregen load coincided with a genuine transmission RPC-hang crash.
+    # cpuset only controls what THIS container can use, so it's the pairing
+    # of this exclusion with transmission's cpuset: "0" that actually keeps
+    # them off each other, not either one alone.
+    cpuset: "1-11"
     secrets:
       - cf_api_key
     labels:

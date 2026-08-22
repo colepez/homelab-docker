@@ -62,6 +62,16 @@ services:
     container_name: transmission
     restart: unless-stopped
     network_mode: "service:gluetun"
+    # Pinned to core 0, 2026-08-22 - added after a genuine RPC-hang crash
+    # (needed the watchdog's forced-NFS-unmount recovery path) that
+    # coincided with dockerz being under heavy CPU load (145%+ from the
+    # aeronautics Minecraft server's Chunky pregen, load average ~6-7 on 12
+    # cores). cpuset alone only guarantees transmission CAN'T be scheduled
+    # outside core 0 - it does NOT keep other containers off core 0, so
+    # this is paired with excluding core 0 from aeronautics (see that
+    # service's own cpuset in game-servers/minecraft/compose.yaml) for
+    # actual isolation from the one real contention source.
+    cpuset: "0"
     depends_on:
       - gluetun
     environment:
