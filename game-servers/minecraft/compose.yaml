@@ -111,6 +111,9 @@ services:
       MEMORY: "8G"
       USE_AIKAR_FLAGS: "TRUE"
       MAX_TICK_TIME: "-1"
+      # Lets `docker exec ... mc-send-to-console` issue in-game/console
+      # commands (used for the Chunky pregen) without needing RCON.
+      CREATE_CONSOLE_IN_PIPE: "true"
     mem_limit: 10g
     secrets:
       - cf_api_key
