@@ -58,37 +58,39 @@ services:
     networks:
       - edge
     restart: unless-stopped
-  atm10:
-    # ATM10 targets MC 1.21 / NeoForge, which wants Java 21
-    image: itzg/minecraft-server:java21
-    environment:
-      EULA: "TRUE"
-      TYPE: CURSEFORGE
-      # pre-downloaded server-pack zip, placed directly in this service's
-      # data dir (bind-mounted below) - no CurseForge API key needed for
-      # this path (that's only required by the AUTO_CURSEFORGE fetch-by-URL
-      # platform type, which this isn't using)
-      CF_SERVER_MOD: ServerFiles-7.1.zip
-      SEED: "1568897881445927183"
-      MOTD: "${ATM10_MOTD}"
-      VIEW_DISTANCE: "10"
-      DIFFICULTY: "normal"
-      ALLOW_FLIGHT: "TRUE"
-      MEMORY: "8G"
-      USE_AIKAR_FLAGS: "TRUE"
-      MAX_TICK_TIME: "-1"
-    mem_limit: 10g
-    labels:
-      mc-router.host: "${ATM10_HOST}"
-      # router-wide AUTO_SCALE_DOWN is off (see router service comment,
-      # still needed for zinnberlycraft/foreverworld) - override it on
-      # just this container now that the Chunky pregen run is finished
-      mc-router.auto-scale-down: "true"
-    volumes:
-      - /srv/docker/game-servers/minecraft/atm10/data:/data
-    restart: unless-stopped
-    networks:
-      - edge
+  # atm10:
+  #   # ATM10 targets MC 1.21 / NeoForge, which wants Java 21
+  #   image: itzg/minecraft-server:java21
+  #   environment:
+  #     EULA: "TRUE"
+  #     TYPE: CURSEFORGE
+  #     # pre-downloaded server-pack zip, placed directly in this service's
+  #     # data dir (bind-mounted below) - no CurseForge API key needed for
+  #     # this path (that's only required by the AUTO_CURSEFORGE fetch-by-URL
+  #     # platform type, which this isn't using)
+  #     CF_SERVER_MOD: ServerFiles-7.1.zip
+  #     SEED: "1568897881445927183"
+  #     MOTD: "${ATM10_MOTD}"
+  #     VIEW_DISTANCE: "10"
+  #     DIFFICULTY: "normal"
+  #     ALLOW_FLIGHT: "TRUE"
+  #     MEMORY: "8G"
+  #     USE_AIKAR_FLAGS: "TRUE"
+  #     MAX_TICK_TIME: "-1"
+  #   mem_limit: 10g
+  #   labels:
+  #     mc-router.host: "${ATM10_HOST}"
+  #     mc-router.auto-scale-down: "true"
+  #   volumes:
+  #     - /srv/docker/game-servers/minecraft/atm10/data:/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - edge
+  # Commented out 2026-08-22, per Cole - dockerz was under real memory
+  # pressure (swap actively in use) running both atm10 and the new
+  # aeronautics server at once, each with a 10g limit. Data left on disk
+  # untouched at atm10/data - just uncomment this block and redeploy to
+  # bring it back.
   aeronautics:
     # All the Mods 10: Aeronautics - NeoForge / MC 1.21.1, same java21 base
     # image as atm10. This pack has no dedicated server-file download (unlike
@@ -114,6 +116,10 @@ services:
       - cf_api_key
     labels:
       mc-router.host: "${AERONAUTICS_HOST}"
+      # router-wide AUTO_SCALE_DOWN is off (see router service comment) -
+      # override it on just this container so it sleeps after 2h idle,
+      # matching atm10's setup - this one has real memory headroom stakes.
+      mc-router.auto-scale-down: "true"
     volumes:
       - /srv/docker/game-servers/minecraft/aeronautics/data:/data
     restart: unless-stopped
