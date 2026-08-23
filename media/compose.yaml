@@ -1,6 +1,2 @@
 # This stack has been deprecated and is no longer in use.
-#
-# The transmission/arr media-automation stack (transmission, sonarr,
-# radarr, prowlarr, cleanuparr, gluetun, natpmp-forwarder) moved to the
-# private "docker" repo, out of this public one.
 services: {}
