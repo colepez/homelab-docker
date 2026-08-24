@@ -142,6 +142,14 @@ services:
       EULA: "TRUE"
       TYPE: CURSEFORGE
       CF_SERVER_MOD: create-serverpack.zip
+      # Without this, itzg's image extracts the server pack into
+      # /data/FeedTheBeast ("for legacy reasons", per its own docs) rather
+      # than /data directly. atm10 tolerates that default fine, but this
+      # pack's NeoForge ServerStarterJar (server.jar) launcher doesn't
+      # correctly resolve its own relative paths (libraries/, run.sh,
+      # unix_args.txt) from that nested location - crash-looped with
+      # "Failed to find main class ' '" until this was set.
+      CF_BASE_DIR: /data
       MOTD: "${CREATE_MOTD}"
       VIEW_DISTANCE: "10"
       DIFFICULTY: "normal"
