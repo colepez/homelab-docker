@@ -175,13 +175,7 @@ services:
     cpuset: "1-11"
     labels:
       mc-router.host: "${CREATE_HOST}"
-      # Temporarily disabled 2026-08-24 while the initial Chunky pregen
-      # (5000 block radius) and BlueMap's first full render run with no
-      # players connected - mc-router's idle timer only tracks player
-      # connections, not server activity, so auto-scale-down would have
-      # killed the container mid-pregen after AUTO_SCALE_DOWN_AFTER (2h).
-      # Flip back to "true" once the pregen/render finish.
-      mc-router.auto-scale-down: "false"
+      mc-router.auto-scale-down: "true"
     volumes:
       - /srv/docker/game-servers/minecraft/create/data:/data
     restart: unless-stopped
