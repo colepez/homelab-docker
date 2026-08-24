@@ -127,19 +127,21 @@ services:
   #   networks:
   #     - edge
   create:
-    # Create: Ultimate Selection 2 - Forge / MC 1.20.1. Fetched via
-    # AUTO_CURSEFORGE (same pattern as aeronautics was) rather than a
-    # pre-downloaded server-pack zip - itzg's image builds the server pack
-    # itself from the client modpack manifest using Cole's CurseForge API
-    # key, mounted as the cf_api_key docker secret defined at the bottom of
-    # this file. Takes over aeronautics' memory/cpuset allocation now that
-    # aeronautics is commented out above.
+    # Create: Ultimate Selection 2 - NeoForge / MC 1.21.1. This modpack's
+    # author disabled CurseForge's API-based ("project distribution")
+    # downloads, so AUTO_CURSEFORGE (CF_SLUG, same pattern aeronautics
+    # used) fails outright with "not allowed for project distribution".
+    # Uses the same manually-downloaded-server-pack path as atm10 instead:
+    # Cole downloaded "Create Ultimate Selection 2 Serverpack MC
+    # 1.21.1-11.5.0.zip" from the CurseForge website by hand and it's
+    # placed directly in this service's data dir (bind-mounted below) -
+    # no CurseForge API key needed for this path. Takes over aeronautics'
+    # memory/cpuset allocation now that aeronautics is commented out above.
     image: itzg/minecraft-server:java21
     environment:
       EULA: "TRUE"
-      TYPE: AUTO_CURSEFORGE
-      CF_SLUG: create-ultimate-selection-2
-      CF_API_KEY_FILE: /run/secrets/cf_api_key
+      TYPE: CURSEFORGE
+      CF_SERVER_MOD: create-serverpack.zip
       MOTD: "${CREATE_MOTD}"
       VIEW_DISTANCE: "10"
       DIFFICULTY: "normal"
@@ -152,8 +154,6 @@ services:
       CREATE_CONSOLE_IN_PIPE: "true"
     mem_limit: 14g
     cpuset: "1-11"
-    secrets:
-      - cf_api_key
     labels:
       mc-router.host: "${CREATE_HOST}"
       mc-router.auto-scale-down: "true"
