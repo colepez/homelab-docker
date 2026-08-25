@@ -175,13 +175,7 @@ services:
     cpuset: "1-11"
     labels:
       mc-router.host: "${CREATE_HOST}"
-      # Temporarily disabled 2026-08-24 again while a Chunky pregen runs on
-      # the nether dimension (625 block radius, matching the overworld's
-      # 5000 block pregen via the 8:1 nether-to-overworld coordinate ratio)
-      # with no players connected - see the earlier note in this file's
-      # history for why auto-scale-down is unsafe during an unattended
-      # pregen. Flip back to "true" once it finishes.
-      mc-router.auto-scale-down: "false"
+      mc-router.auto-scale-down: "true"
     volumes:
       - /srv/docker/game-servers/minecraft/create/data:/data
     restart: unless-stopped
