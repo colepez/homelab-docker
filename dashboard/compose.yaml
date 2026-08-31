@@ -14,6 +14,7 @@ services:
       - HOMEPAGE_VAR_PORTAINER_KEY=${HOMEPAGE_VAR_PORTAINER_KEY}
       - HOMEPAGE_VAR_PLEX_KEY=${HOMEPAGE_VAR_PLEX_KEY}
       - HOMEPAGE_VAR_PROWLARR_KEY=${HOMEPAGE_VAR_PROWLARR_KEY}
+      - HOMEPAGE_VAR_QBITTORRENT_PASSWORD=${HOMEPAGE_VAR_QBITTORRENT_PASSWORD}
     volumes:
       - /srv/docker/dashboards/homepage/:/app/config
       - /srv/docker/dashboards/homepage/images:/app/public/images:ro
