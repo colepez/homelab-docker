@@ -14,7 +14,6 @@ services:
     restart: unless-stopped
     networks:
       - edge
-      - vpn-internal
     ports:
       - "25565:25565"
       - "34197:34197/udp"
@@ -62,9 +61,6 @@ networks:
   edge:
     name: edge
     driver: bridge
-  vpn-internal:
-    name: vpn-internal
-    external: true
 
 volumes:
   acme_data:
