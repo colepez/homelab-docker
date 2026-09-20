@@ -27,6 +27,7 @@ services:
       - /srv/docker/nginx/www:/etc/nginx/www:ro
       - ${BLUEMAP_ZINNBERLYCRAFT_WEB_PATH}:/etc/nginx/www/map-zinnberlycraft:ro
       - ${BLUEMAP_CREATE_WEB_PATH}:/etc/nginx/www/map-create:ro
+      - ${BLUEMAP_KIRA_WEB_PATH}:/etc/nginx/www/map-kira:ro
       - /srv/docker/nginx/logs:/var/log/nginx-host
 
   acme:
