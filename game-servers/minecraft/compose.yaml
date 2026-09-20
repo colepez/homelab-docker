@@ -70,10 +70,13 @@ services:
       # so this keeps working as LATEST moves forward.
       MODRINTH_PROJECTS: "fabric-api,bluemap,chunky"
       MODRINTH_DOWNLOAD_DEPENDENCIES: "required"
+      MEMORY: "4G"
+      USE_AIKAR_FLAGS: "TRUE"
       VIEW_DISTANCE: "12"
       MOTD: "§cK§6i§er§aa§b'§9s §dW§co§6r§el§ad"
     volumes:
       - /srv/docker/game-servers/minecraft/kira/data:/data
+    mem_limit: 5g
     restart: unless-stopped
     labels:
       mc-router.host: "${KIRA_HOST}"
