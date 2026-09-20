@@ -68,7 +68,7 @@ services:
       # whatever VERSION resolves to above - avoids hand-pinning mod jars
       # the way zinnberlycraft's data dir does (see its mods/ folder),
       # so this keeps working as LATEST moves forward.
-      MODRINTH_PROJECTS: "fabric-api,bluemap"
+      MODRINTH_PROJECTS: "fabric-api,bluemap,chunky"
       MODRINTH_DOWNLOAD_DEPENDENCIES: "required"
       VIEW_DISTANCE: "12"
       MOTD: "§cK§6i§er§aa§b'§9s §dW§co§6r§el§ad"
