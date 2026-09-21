@@ -27,6 +27,7 @@ services:
       - edge
   zinnberlycraft:
     image: itzg/minecraft-server:latest
+    profiles: ["zinnberlycraft"]
     environment:
       EULA: "TRUE"
       # Fabric adds BlueMap for the live map; it's server-side only so
@@ -44,6 +45,7 @@ services:
       - edge
   foreverworld:
     image: itzg/minecraft-server
+    profiles: ["foreverworld"]
     environment:
       EULA: "TRUE"
       MOTD: "${FOREVERWORLD_MOTD}"
@@ -60,6 +62,7 @@ services:
     restart: unless-stopped
   kira:
     image: itzg/minecraft-server:latest
+    profiles: ["kira"]
     environment:
       EULA: "TRUE"
       TYPE: FABRIC
@@ -163,6 +166,7 @@ services:
     # no CurseForge API key needed for this path. Takes over aeronautics'
     # memory/cpuset allocation now that aeronautics is commented out above.
     image: itzg/minecraft-server:java21
+    profiles: ["create"]
     environment:
       EULA: "TRUE"
       TYPE: CURSEFORGE
