@@ -13,7 +13,7 @@ services:
       - edge
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    image: quay.io/keycloak/keycloak:26.8.1
     container_name: keycloak
     restart: unless-stopped
     command: start
