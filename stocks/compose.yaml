@@ -1,0 +1,17 @@
+services:
+  stocks:
+    image: nginx:alpine
+    container_name: stocks
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+    volumes:
+      # Page content lives in the private colepez/docker repo
+      - /srv/docker/stocks/html:/usr/share/nginx/html:ro
+    networks:
+      - edge
+
+networks:
+  edge:
+    name: edge
+    external: true
