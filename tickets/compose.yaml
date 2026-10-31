@@ -1,0 +1,25 @@
+# homelab-tickets: minimal Rust ticket queue for the Wazuh -> Claude alert responder (source in this directory).
+# Built from this repo by Portainer. The hostname/TLS vhost lives in the private repo; secrets come from stack env.
+services:
+  tickets:
+    build: .
+    image: homelab-tickets:local
+    container_name: tickets
+    restart: unless-stopped
+    init: true
+    environment:
+      - TZ=${TZ}
+      - TICKETS_API_TOKEN=${TICKETS_API_TOKEN}
+      - TICKETS_UI_PASSWORD=${TICKETS_UI_PASSWORD}
+      - TICKETS_SESSION_SECRET=${TICKETS_SESSION_SECRET}
+      - TICKETS_BASE_URL=${TICKETS_BASE_URL}
+    volumes:
+      # SQLite lives under the private /srv/docker tree, so the hourly rsync backup picks it up
+      - ${TICKETS_DATA_PATH}:/data
+    networks:
+      - edge
+
+networks:
+  edge:
+    name: edge
+    external: true
