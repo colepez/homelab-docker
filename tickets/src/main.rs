@@ -8,6 +8,10 @@
 //! Report text may contain attacker-controlled log content, so markdown is rendered with raw HTML neutralised,
 //! dangerous link schemes dropped, images removed, and a CSP that forbids scripts entirely.
 //!
+//! Auth: with TICKETS_PROXY_SECRET set, the UI trusts the user nginx passes in X-Tickets-User (from oauth2-proxy /
+//! Keycloak), but only when X-Tickets-Proxy-Secret matches; password login is then disabled. Without it, the
+//! single-password login is used. The /api/* routes always use the Bearer token.
+//!
 //! Env: TICKETS_DB (default /data/tickets.db), TICKETS_BIND (default 0.0.0.0:8080),
 //!      TICKETS_API_TOKEN, TICKETS_UI_PASSWORD, TICKETS_SESSION_SECRET (all required),
 //!      TICKETS_BASE_URL (for links returned by the API).
@@ -38,6 +42,7 @@ struct AppState {
     ui_password: String,
     secret: Vec<u8>,
     base_url: String,
+    proxy_secret: Option<String>,
 }
 type S = State<Arc<AppState>>;
 
@@ -137,6 +142,17 @@ fn session_ok(st: &AppState, headers: &HeaderMap) -> bool {
     false
 }
 
+/// Who is using the UI, if anyone. Proxy mode: trusted header from nginx (secret-gated). Otherwise: password session.
+fn ui_user(st: &AppState, headers: &HeaderMap) -> Option<String> {
+    if let Some(secret) = &st.proxy_secret {
+        let h = |k: &str| headers.get(k).and_then(|v| v.to_str().ok()).unwrap_or("").trim().to_string();
+        let user = h("x-tickets-user");
+        return (ct_eq(&h("x-tickets-proxy-secret"), secret) && !user.is_empty())
+            .then(|| user.chars().take(120).collect());
+    }
+    session_ok(st, headers).then(|| "cole".to_string())
+}
+
 fn api_ok(st: &AppState, headers: &HeaderMap) -> bool {
     headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
@@ -170,6 +186,7 @@ textarea{{width:100%;box-sizing:border-box;min-height:70px}} form.inline{{displa
 }
 
 fn login_redirect() -> Response {
+    // In proxy mode nginx/oauth2-proxy normally intercepts first; /login forwards to the SSO sign-in.
     Redirect::to("/login").into_response()
 }
 
@@ -249,7 +266,7 @@ fn list_tickets(c: &Connection, view: &str) -> rusqlite::Result<Vec<Ticket>> {
 struct ListQ { view: Option<String> }
 
 async fn ui_list(State(st): S, headers: HeaderMap, Query(q): Query<ListQ>) -> Response {
-    if !session_ok(&st, &headers) { return login_redirect(); }
+    let Some(_user) = ui_user(&st, &headers) else { return login_redirect(); };
     let view = q.view.unwrap_or_else(|| "open".into());
     let tickets = match list_tickets(&st.db.lock().unwrap(), &view) {
         Ok(t) => t,
@@ -270,7 +287,7 @@ async fn ui_list(State(st): S, headers: HeaderMap, Query(q): Query<ListQ>) -> Re
 }
 
 async fn ui_ticket(State(st): S, headers: HeaderMap, Path(id): Path<i64>) -> Response {
-    if !session_ok(&st, &headers) { return login_redirect(); }
+    let Some(_user) = ui_user(&st, &headers) else { return login_redirect(); };
     let (t, evs) = {
         let c = st.db.lock().unwrap();
         match get_ticket(&c, id) {
@@ -313,22 +330,22 @@ async fn ui_ticket(State(st): S, headers: HeaderMap, Path(id): Path<i64>) -> Res
 struct StatusForm { status: String }
 
 async fn ui_status(State(st): S, headers: HeaderMap, Path(id): Path<i64>, Form(f): Form<StatusForm>) -> Response {
-    if !session_ok(&st, &headers) { return login_redirect(); }
+    let Some(user) = ui_user(&st, &headers) else { return login_redirect(); };
     if !STATUSES.contains(&f.status.as_str()) { return (StatusCode::BAD_REQUEST, "bad status").into_response(); }
     let c = st.db.lock().unwrap();
     let _ = c.execute("UPDATE tickets SET status=?2 WHERE id=?1", params![id, f.status]);
     if f.status == "resolved" || f.status == "closed" {
         let _ = c.execute("UPDATE tickets SET awaiting_cole=0 WHERE id=?1", [id]);
     }
-    let _ = add_event(&c, id, "status", "cole", &format!("Status set to **{}**", f.status));
+    let _ = add_event(&c, id, "status", &user, &format!("Status set to **{}**", f.status));
     Redirect::to(&format!("/t/{id}")).into_response()
 }
 
 async fn ui_confirmed(State(st): S, headers: HeaderMap, Path(id): Path<i64>) -> Response {
-    if !session_ok(&st, &headers) { return login_redirect(); }
+    let Some(user) = ui_user(&st, &headers) else { return login_redirect(); };
     let c = st.db.lock().unwrap();
     let _ = c.execute("UPDATE tickets SET awaiting_cole=0 WHERE id=?1", [id]);
-    let _ = add_event(&c, id, "decision", "cole", "Marked as decided");
+    let _ = add_event(&c, id, "decision", &user, "Marked as decided");
     Redirect::to(&format!("/t/{id}")).into_response()
 }
 
@@ -336,15 +353,16 @@ async fn ui_confirmed(State(st): S, headers: HeaderMap, Path(id): Path<i64>) -> 
 struct CommentForm { text: String }
 
 async fn ui_comment(State(st): S, headers: HeaderMap, Path(id): Path<i64>, Form(f): Form<CommentForm>) -> Response {
-    if !session_ok(&st, &headers) { return login_redirect(); }
+    let Some(user) = ui_user(&st, &headers) else { return login_redirect(); };
     let text = f.text.trim();
     if !text.is_empty() {
-        let _ = add_event(&st.db.lock().unwrap(), id, "note", "cole", &text.chars().take(20000).collect::<String>());
+        let _ = add_event(&st.db.lock().unwrap(), id, "note", &user, &text.chars().take(20000).collect::<String>());
     }
     Redirect::to(&format!("/t/{id}")).into_response()
 }
 
-async fn ui_login_form() -> Response {
+async fn ui_login_form(State(st): S) -> Response {
+    if st.proxy_secret.is_some() { return Redirect::to("/oauth2/sign_in?rd=%2F%3Fview%3Dattention").into_response(); }
     let mut r = Html(r#"<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Login</title><style>body{font:16px system-ui;background:#111418;color:#e6e6e6;display:flex;justify-content:center;padding-top:15vh}
 input,button{font:inherit;padding:8px 12px;border-radius:6px;border:1px solid #444;background:#2c333c;color:#e6e6e6}</style></head>
@@ -357,6 +375,7 @@ input,button{font:inherit;padding:8px 12px;border-radius:6px;border:1px solid #4
 struct LoginForm { password: String }
 
 async fn ui_login(State(st): S, Form(f): Form<LoginForm>) -> Response {
+    if st.proxy_secret.is_some() { return StatusCode::NOT_FOUND.into_response(); }
     if !ct_eq(&f.password, &st.ui_password) {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         return Redirect::to("/login").into_response();
@@ -368,7 +387,11 @@ async fn ui_login(State(st): S, Form(f): Form<LoginForm>) -> Response {
     r
 }
 
-async fn ui_logout() -> Response {
+async fn ui_logout(State(st): S) -> Response {
+    if st.proxy_secret.is_some() {
+        // Clear the oauth2-proxy cookie, then end the Keycloak session so the next visit asks for a login again.
+        return Redirect::to("/oauth2/sign_out?rd=https%3A%2F%2Fsso.pezzitools.org%2Frealms%2Fhomelab%2Fprotocol%2Fopenid-connect%2Flogout%3Fclient_id%3Dhomelab-tickets%26post_logout_redirect_uri%3Dhttps%253A%252F%252Ftickets.pezzitools.org%252F").into_response();
+    }
     let mut r = Redirect::to("/login").into_response();
     r.headers_mut().insert(header::SET_COOKIE, HeaderValue::from_static("tk=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict"));
     r
@@ -491,6 +514,7 @@ async fn main() {
         ui_password: env("TICKETS_UI_PASSWORD"),
         secret: env("TICKETS_SESSION_SECRET").into_bytes(),
         base_url: std::env::var("TICKETS_BASE_URL").unwrap_or_default().trim_end_matches('/').to_string(),
+        proxy_secret: std::env::var("TICKETS_PROXY_SECRET").ok().filter(|v| v.len() >= 16),
     });
     for (k, v) in [("TICKETS_API_TOKEN", &st.api_token), ("TICKETS_UI_PASSWORD", &st.ui_password)] {
         assert!(v.len() >= 16, "{k} must be at least 16 characters");
