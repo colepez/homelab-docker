@@ -47,8 +47,8 @@ services:
       - OAUTH2_PROXY_LOGIN_URL=${TICKETS_OIDC_ISSUER_URL}/protocol/openid-connect/auth
       - OAUTH2_PROXY_REDEEM_URL=http://keycloak:8080/realms/homelab/protocol/openid-connect/token
       - OAUTH2_PROXY_OIDC_JWKS_URL=http://keycloak:8080/realms/homelab/protocol/openid-connect/certs
-      - OAUTH2_PROXY_PROFILE_URL=http://keycloak:8080/realms/homelab/protocol/openid-connect/userinfo
-      - OAUTH2_PROXY_VALIDATE_URL=http://keycloak:8080/realms/homelab/protocol/openid-connect/userinfo
+      # No profile/validate URL: Keycloak's userinfo rejects tokens over the internal hostname (issuer mismatch).
+      # Roles reach oauth2-proxy as the "groups" claim via the client's realm-roles-as-groups mapper instead.
       - OAUTH2_PROXY_CODE_CHALLENGE_METHOD=S256
       - OAUTH2_PROXY_HTTP_ADDRESS=0.0.0.0:4180
       - OAUTH2_PROXY_REVERSE_PROXY=true
