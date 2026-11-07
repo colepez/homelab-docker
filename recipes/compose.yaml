@@ -1,0 +1,25 @@
+# Recipes: Mealie (recipe manager) plus recipes-mcp, a small Rust MCP server that lets Claude read/write recipes.
+# Public hostname comes from stack env; the Cloudflare tunnel routes it straight to mealie:9000 (no nginx hop),
+# and the MCP path to recipes-mcp. Data lives under the private /srv/docker tree, so the hourly rsync backs it up.
+services:
+  mealie:
+    image: ghcr.io/mealie-recipes/mealie:v3.30.0
+    container_name: mealie
+    restart: unless-stopped
+    mem_limit: 1g
+    environment:
+      - TZ=${TZ}
+      - BASE_URL=${RECIPES_BASE_URL}
+      - ALLOW_SIGNUP=false
+      - DB_ENGINE=sqlite
+      - MAX_WORKERS=1
+      - WEB_CONCURRENCY=1
+    volumes:
+      - ${RECIPES_DATA_PATH}:/app/data
+    networks:
+      - edge
+
+networks:
+  edge:
+    name: edge
+    external: true
