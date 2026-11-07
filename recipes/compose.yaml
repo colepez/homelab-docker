@@ -34,8 +34,9 @@ services:
     networks:
       - edge
 
-  # MCP endpoint for Claude (claude.ai custom connector). Source in ./mcp. The tunnel routes
-  # <RECIPES_BASE_URL>/mcp/* here; only /mcp/<MCP_PATH_SECRET> answers, everything else is a 404.
+  # MCP endpoint for Claude (claude.ai custom connector). Source in ./mcp. The tunnel routes <RECIPES_BASE_URL>/mcp and
+  # /.well-known/oauth-protected-resource here. Auth is OAuth via the SSO realm (Keycloak client claude-mcp): tokens
+  # must carry audience recipes-mcp and realm role mealie-users or mealie-admins.
   recipes-mcp:
     build: ./mcp
     image: recipes-mcp:local
@@ -46,7 +47,8 @@ services:
     mem_limit: 128m
     environment:
       - RECIPES_BASE_URL=${RECIPES_BASE_URL}
-      - MCP_PATH_SECRET=${MCP_PATH_SECRET}
+      - MCP_OIDC_ISSUER=${RECIPES_MCP_OIDC_ISSUER}
+      - MCP_OIDC_JWKS_URL=http://keycloak:8080/realms/homelab/protocol/openid-connect/certs
       - MCP_ALLOWED_HOSTS=${MCP_ALLOWED_HOSTS}
       - MEALIE_API_TOKEN=${MEALIE_API_TOKEN}
       - MEALIE_URL=http://mealie:9000

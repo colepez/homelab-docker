@@ -1,8 +1,10 @@
 //! recipes-mcp: a Streamable-HTTP MCP server that lets Claude search, read and write recipes in Mealie.
 //!
-//! Auth is a capability URL: the MCP endpoint is mounted only at `/mcp/<MCP_PATH_SECRET>`, and every other path
-//! is a 404. Claude.ai custom connectors can't send a static bearer header, so the secret lives in the URL.
+//! Auth is OAuth via Keycloak (see auth.rs): claude.ai discovers the authorization server from the protected-resource
+//! metadata, the user signs in with SSO, and every request carries a Keycloak access token that is verified here.
 //! Mealie is reached over the internal docker network with a long-lived API token.
+
+mod auth;
 
 use std::{
     net::IpAddr,
@@ -11,7 +13,7 @@ use std::{
 };
 
 use anyhow::Context;
-use axum::{http::StatusCode, routing::get};
+use axum::{http::StatusCode, middleware, routing::get};
 use reqwest::{Method, Url};
 use rmcp::{
     ErrorData as McpError, ServerHandler,
@@ -665,20 +667,29 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let env = |k: &str| std::env::var(k).with_context(|| format!("{k} is not set"));
-    let secret = env("MCP_PATH_SECRET")?;
-    anyhow::ensure!(
-        secret.len() >= 32 && secret.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
-        "MCP_PATH_SECRET must be at least 32 URL-safe characters"
-    );
     let public_url = env("RECIPES_BASE_URL")?.trim_end_matches('/').to_owned();
     let allowed_hosts: Vec<String> = env("MCP_ALLOWED_HOSTS")?
         .split(',')
         .map(|h| h.trim().to_owned())
         .filter(|h| !h.is_empty())
         .collect();
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(60)).build()?;
+
+    let auth = Arc::new(auth::Auth::new(
+        env("MCP_OIDC_ISSUER")?.trim_end_matches('/').to_owned(),
+        env("MCP_OIDC_JWKS_URL")?,
+        std::env::var("MCP_AUDIENCE").unwrap_or_else(|_| "recipes-mcp".into()),
+        std::env::var("MCP_ALLOWED_ROLES")
+            .unwrap_or_else(|_| "mealie-users,mealie-admins".into())
+            .split(',')
+            .map(|r| r.trim().to_owned())
+            .collect(),
+        format!("{public_url}/mcp"),
+        http.clone(),
+    ));
 
     let mealie = Arc::new(Mealie {
-        http: reqwest::Client::builder().timeout(Duration::from_secs(60)).build()?,
+        http,
         base: Url::parse(&std::env::var("MEALIE_URL").unwrap_or_else(|_| "http://mealie:9000".into()))?,
         token: env("MEALIE_API_TOKEN")?,
         public_url,
@@ -694,8 +705,14 @@ async fn main() -> anyhow::Result<()> {
     let m = mealie.clone();
     let service = StreamableHttpService::new(move || Ok(Recipes::new(m.clone())), LocalSessionManager::default().into(), config);
 
+    let mcp = axum::Router::new()
+        .nest_service("/mcp", service)
+        .layer(middleware::from_fn_with_state(auth.clone(), auth::require_auth));
     let app = axum::Router::new()
-        .nest_service(&format!("/mcp/{secret}"), service)
+        .route("/.well-known/oauth-protected-resource", get(auth::protected_resource_metadata))
+        .route("/.well-known/oauth-protected-resource/mcp", get(auth::protected_resource_metadata))
+        .with_state(auth)
+        .merge(mcp)
         .route("/healthz", get(|| async { "ok" }))
         .fallback(|| async { StatusCode::NOT_FOUND });
 
