@@ -1,0 +1,43 @@
+# sso-gate: one oauth2-proxy in front of the LAN admin UIs (homepage, proxmox, truenas, the arrs, qbittorrent, ...).
+# nginx vhosts include conf.d/sso-gate.inc, which adds auth_request against this container. OIDC client "homelab-gate"
+# in the SSO realm; only users with realm role homelab-admins get through. Cookies are per host (no cookie domain), and
+# the Keycloak session makes signing in to the next host silent. The redirect URL is derived per request from
+# X-Forwarded-Host, so every gated host must be listed as a redirect URI on the Keycloak client.
+services:
+  sso-gate:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.5
+    container_name: sso-gate
+    restart: unless-stopped
+    mem_limit: 128m
+    environment:
+      - OAUTH2_PROXY_PROVIDER=keycloak-oidc
+      - OAUTH2_PROXY_CLIENT_ID=homelab-gate
+      - OAUTH2_PROXY_CLIENT_SECRET=${SSO_GATE_CLIENT_SECRET}
+      - OAUTH2_PROXY_COOKIE_SECRET=${SSO_GATE_COOKIE_SECRET}
+      - OAUTH2_PROXY_COOKIE_NAME=_homelab_sso
+      - OAUTH2_PROXY_COOKIE_SECURE=true
+      - OAUTH2_PROXY_COOKIE_EXPIRE=168h
+      - OAUTH2_PROXY_COOKIE_REFRESH=1h
+      - OAUTH2_PROXY_EMAIL_DOMAINS=*
+      - OAUTH2_PROXY_ALLOWED_ROLES=homelab-admins
+      # Same split as tickets-oauth2-proxy: the browser logs in at the public SSO URL, server-to-server calls go
+      # straight to the keycloak container so LAN logins don't depend on the internet. Signatures are checked via JWKS.
+      - OAUTH2_PROXY_OIDC_ISSUER_URL=${SSO_GATE_OIDC_ISSUER_URL}
+      - OAUTH2_PROXY_SKIP_OIDC_DISCOVERY=true
+      - OAUTH2_PROXY_INSECURE_OIDC_SKIP_ISSUER_VERIFICATION=true
+      - OAUTH2_PROXY_LOGIN_URL=${SSO_GATE_OIDC_ISSUER_URL}/protocol/openid-connect/auth
+      - OAUTH2_PROXY_REDEEM_URL=http://keycloak:8080/realms/homelab/protocol/openid-connect/token
+      - OAUTH2_PROXY_OIDC_JWKS_URL=http://keycloak:8080/realms/homelab/protocol/openid-connect/certs
+      - OAUTH2_PROXY_CODE_CHALLENGE_METHOD=S256
+      - OAUTH2_PROXY_HTTP_ADDRESS=0.0.0.0:4180
+      - OAUTH2_PROXY_REVERSE_PROXY=true
+      - OAUTH2_PROXY_SET_XAUTHREQUEST=true
+      - OAUTH2_PROXY_UPSTREAMS=static://202
+      - OAUTH2_PROXY_SKIP_PROVIDER_BUTTON=true
+    networks:
+      - edge
+
+networks:
+  edge:
+    name: edge
+    external: true
