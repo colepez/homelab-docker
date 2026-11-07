@@ -14,6 +14,21 @@ services:
       - DB_ENGINE=sqlite
       - MAX_WORKERS=1
       - WEB_CONCURRENCY=1
+      # Sign-in via Keycloak (realm homelab, client "mealie"). Realm roles arrive as the "groups" claim:
+      # mealie-users may sign in, mealie-admins are Mealie admins. Users are matched to existing accounts by email.
+      # Password login stays configurable as a break-glass; the recipes-mcp API token works either way.
+      - OIDC_AUTH_ENABLED=true
+      - OIDC_SIGNUP_ENABLED=true
+      - OIDC_CONFIGURATION_URL=${RECIPES_OIDC_CONFIGURATION_URL}
+      - OIDC_CLIENT_ID=mealie
+      - OIDC_CLIENT_SECRET=${RECIPES_OIDC_CLIENT_SECRET}
+      - OIDC_USER_GROUP=mealie-users
+      - OIDC_ADMIN_GROUP=mealie-admins
+      - OIDC_GROUPS_CLAIM=groups
+      - OIDC_PROVIDER_NAME=Homelab SSO
+      - OIDC_REMEMBER_ME=true
+      - OIDC_AUTO_REDIRECT=${RECIPES_OIDC_AUTO_REDIRECT:-false}
+      - ALLOW_PASSWORD_LOGIN=${RECIPES_ALLOW_PASSWORD_LOGIN:-true}
     volumes:
       - ${RECIPES_DATA_PATH}:/app/data
     networks:
