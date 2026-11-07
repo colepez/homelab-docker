@@ -31,6 +31,8 @@ services:
       - OAUTH2_PROXY_CODE_CHALLENGE_METHOD=S256
       - OAUTH2_PROXY_HTTP_ADDRESS=0.0.0.0:4180
       - OAUTH2_PROXY_REVERSE_PROXY=true
+      # Only nginx-proxy (on the edge network) may supply X-Forwarded-* headers
+      - OAUTH2_PROXY_TRUSTED_PROXY_IPS=172.18.0.0/16
       - OAUTH2_PROXY_SET_XAUTHREQUEST=true
       - OAUTH2_PROXY_UPSTREAMS=static://202
       - OAUTH2_PROXY_SKIP_PROVIDER_BUTTON=true
