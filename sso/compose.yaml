@@ -13,7 +13,7 @@ services:
       - edge
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.8.1
+    image: quay.io/keycloak/keycloak:26.8.2
     container_name: keycloak
     restart: unless-stopped
     command: start
@@ -31,6 +31,8 @@ services:
       - KC_HOSTNAME_STRICT=false
       - KC_HTTP_ENABLED=true
       - KC_PROXY_HEADERS=xforwarded
+      # CVE-2026-114938 (Java4Shell) mitigation until the image ships a patched JDK
+      - JAVA_OPTS_APPEND=-XX:-UseBASE64Intrinsics
     depends_on:
       - keycloak-db
     networks:
