@@ -5,6 +5,7 @@
 //! Mealie is reached over the internal docker network with a long-lived API token.
 
 mod auth;
+mod upload;
 
 use std::{
     net::IpAddr,
@@ -90,7 +91,8 @@ impl Mealie {
     }
 
     /// Build a PATCH body from the optional recipe fields; only fields that were given are touched.
-    async fn patch_body(&self, f: &RecipeFields) -> Result<Map<String, Value>, String> {
+    /// `current` is the recipe as it stands, so nutrition can be merged and the other settings kept.
+    async fn patch_body(&self, f: &RecipeFields, current: &Value) -> Result<Map<String, Value>, String> {
         let mut p = Map::new();
         let mut set = |k: &str, v: Value| {
             p.insert(k.to_owned(), v);
@@ -119,7 +121,78 @@ impl Mealie {
             let cats = self.organizers("categories", v).await?;
             p.insert("recipeCategory".into(), cats);
         }
+        if let Some(n) = &f.nutrition {
+            let mut nut = current["nutrition"].as_object().cloned().unwrap_or_default();
+            let mut any = false;
+            for ((_, field), v) in NUTRITION_FIELDS.iter().zip(n.values()) {
+                if let Some(v) = v {
+                    if !v.is_finite() || v < 0.0 {
+                        return Err(format!("nutrition values must be non-negative numbers, got {v}"));
+                    }
+                    nut.insert((*field).into(), json!(fmt_number(v)));
+                    any = true;
+                }
+            }
+            if any {
+                p.insert("nutrition".into(), Value::Object(nut));
+                // PATCH replaces top-level keys, so send the full settings object with only showNutrition changed
+                let mut settings = current["settings"].as_object().cloned().unwrap_or_default();
+                settings.insert("showNutrition".into(), json!(true));
+                p.insert("settings".into(), Value::Object(settings));
+            }
+        }
         Ok(p)
+    }
+
+    fn image_url(&self, r: &Value) -> Value {
+        match (r["id"].as_str(), r["image"].as_str()) {
+            (Some(id), Some(img)) if !img.is_empty() => {
+                // `image` changes on every new photo, so it doubles as a cache buster
+                json!(format!("{}/api/media/recipes/{id}/images/original.webp?v={img}", self.public_url))
+            }
+            _ => Value::Null,
+        }
+    }
+
+    /// Upload raw image bytes as the recipe's photo (multipart PUT, as Mealie's own UI does).
+    async fn upload_image(&self, slug: &str, bytes: Vec<u8>) -> Result<(), String> {
+        let (ext, mime) = sniff_image(&bytes).ok_or("not a JPEG, PNG, WebP or GIF image")?;
+        let url = self.base.join(&format!("/api/recipes/{slug}/image")).map_err(|e| e.to_string())?;
+        let part = reqwest::multipart::Part::bytes(bytes)
+            .file_name(format!("image.{ext}"))
+            .mime_str(mime)
+            .map_err(|e| e.to_string())?;
+        let form = reqwest::multipart::Form::new().part("image", part).text("extension", ext);
+        let resp = self
+            .http
+            .put(url)
+            .bearer_auth(&self.token)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| format!("Mealie is unreachable: {e}"))?;
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            tracing::warn!(slug, %status, "mealie image upload error");
+            return Err(format!("Mealie returned {status}: {}", truncate(&text, 600)));
+        }
+        Ok(())
+    }
+}
+
+/// Identify an image by its magic bytes: (extension, MIME type).
+fn sniff_image(b: &[u8]) -> Option<(&'static str, &'static str)> {
+    if b.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some(("jpg", "image/jpeg"))
+    } else if b.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some(("png", "image/png"))
+    } else if b.len() >= 12 && &b[0..4] == b"RIFF" && &b[8..12] == b"WEBP" {
+        Some(("webp", "image/webp"))
+    } else if b.starts_with(b"GIF87a") || b.starts_with(b"GIF89a") {
+        Some(("gif", "image/gif"))
+    } else {
+        None
     }
 }
 
@@ -238,6 +311,75 @@ struct RecipeFields {
     categories: Option<Vec<String>>,
     /// Original source URL, if the recipe came from somewhere
     source_url: Option<String>,
+    /// Nutrition per serving, shown in Mealie's nutrition panel (which this turns on). Only the values you pass
+    /// change; the others are kept.
+    nutrition: Option<NutritionIn>,
+}
+
+/// Nutrition per serving, as plain numbers (no units).
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+struct NutritionIn {
+    /// Calories (kcal)
+    calories: Option<f64>,
+    /// Protein, grams
+    protein: Option<f64>,
+    /// Carbohydrates, grams
+    carbohydrates: Option<f64>,
+    /// Total fat, grams
+    fat: Option<f64>,
+    /// Saturated fat, grams
+    saturated_fat: Option<f64>,
+    /// Trans fat, grams
+    trans_fat: Option<f64>,
+    /// Unsaturated fat, grams
+    unsaturated_fat: Option<f64>,
+    /// Fiber, grams
+    fiber: Option<f64>,
+    /// Sugar, grams
+    sugar: Option<f64>,
+    /// Sodium, milligrams
+    sodium: Option<f64>,
+    /// Cholesterol, milligrams
+    cholesterol: Option<f64>,
+}
+
+/// (our name, Mealie's field). Mealie shows calories as "calories", sodium/cholesterol in mg, the rest in grams.
+const NUTRITION_FIELDS: [(&str, &str); 11] = [
+    ("calories", "calories"),
+    ("protein", "proteinContent"),
+    ("carbohydrates", "carbohydrateContent"),
+    ("fat", "fatContent"),
+    ("saturated_fat", "saturatedFatContent"),
+    ("trans_fat", "transFatContent"),
+    ("unsaturated_fat", "unsaturatedFatContent"),
+    ("fiber", "fiberContent"),
+    ("sugar", "sugarContent"),
+    ("sodium", "sodiumContent"),
+    ("cholesterol", "cholesterolContent"),
+];
+
+impl NutritionIn {
+    fn values(&self) -> [Option<f64>; 11] {
+        [
+            self.calories, self.protein, self.carbohydrates, self.fat, self.saturated_fat, self.trans_fat,
+            self.unsaturated_fat, self.fiber, self.sugar, self.sodium, self.cholesterol,
+        ]
+    }
+}
+
+/// 950.0 -> "950", 12.25 -> "12.3"
+fn fmt_number(v: f64) -> String {
+    let r = (v * 10.0).round() / 10.0;
+    if r.fract() == 0.0 { format!("{}", r as i64) } else { format!("{r}") }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ImageUrlArgs {
+    /// Slug of the recipe
+    slug: String,
+    /// Public URL of the photo itself (a .jpg/.png/.webp link, not a web page). Mealie downloads and stores it,
+    /// replacing any existing photo.
+    image_url: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -321,6 +463,7 @@ struct MealPlanGetArgs {
 #[derive(Clone)]
 struct Recipes {
     mealie: Arc<Mealie>,
+    uploads: Arc<upload::Uploads>,
     tool_router: ToolRouter<Recipes>,
 }
 
@@ -359,8 +502,8 @@ fn str_or_null(v: &Value) -> Value {
 
 #[tool_router]
 impl Recipes {
-    fn new(mealie: Arc<Mealie>) -> Self {
-        Self { mealie, tool_router: Self::tool_router() }
+    fn new(mealie: Arc<Mealie>, uploads: Arc<upload::Uploads>) -> Self {
+        Self { mealie, uploads, tool_router: Self::tool_router() }
     }
 
     fn summary(&self, r: &Value) -> Value {
@@ -373,6 +516,7 @@ impl Recipes {
             "tags": names(&r["tags"]),
             "categories": names(&r["recipeCategory"]),
             "url": self.mealie.link(slug),
+            "image_url": self.mealie.image_url(r),
         })
     }
 
@@ -404,6 +548,12 @@ impl Recipes {
             .as_array()
             .map(|a| a.iter().map(|n| json!({ "title": n["title"], "text": n["text"] })).collect())
             .unwrap_or_default();
+        let mut nutrition = Map::new();
+        for (ours, field) in NUTRITION_FIELDS {
+            if let Some(v) = r["nutrition"][field].as_str().filter(|s| !s.trim().is_empty()) {
+                nutrition.insert(ours.into(), json!(v));
+            }
+        }
         json!({
             "id": r["id"],
             "name": r["name"],
@@ -421,6 +571,8 @@ impl Recipes {
             "tags": names(&r["tags"]),
             "categories": names(&r["recipeCategory"]),
             "source_url": str_or_null(&r["orgURL"]),
+            "nutrition_per_serving": if nutrition.is_empty() { Value::Null } else { Value::Object(nutrition) },
+            "image_url": self.mealie.image_url(r),
             "rating": r["rating"],
             "updated_at": r["updatedAt"],
         })
@@ -462,7 +614,8 @@ impl Recipes {
     }
 
     #[tool(
-        description = "Get a full recipe by slug: ingredients, steps, times, yield, notes, tags and categories.",
+        description = "Get a full recipe by slug: ingredients, steps, times, yield, notes, tags, categories, \
+                       nutrition per serving and photo link.",
         annotations(title = "Get recipe", read_only_hint = true)
     )]
     async fn get_recipe(&self, Parameters(a): Parameters<SlugArgs>) -> ToolResult {
@@ -482,7 +635,14 @@ impl Recipes {
         }
         let slug = try_tool!(self.mealie.call(Method::POST, "/api/recipes", &[], Some(json!({ "name": name }))).await);
         let slug = slug.as_str().unwrap_or_default().to_owned();
-        let patch = match self.mealie.patch_body(&a.fields).await {
+        let stub = match self.fetch(&slug).await {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = self.mealie.call(Method::DELETE, &format!("/api/recipes/{slug}"), &[], None).await;
+                return tool_err(e);
+            }
+        };
+        let patch = match self.mealie.patch_body(&a.fields, &stub).await {
             Ok(p) => p,
             Err(e) => {
                 let _ = self.mealie.call(Method::DELETE, &format!("/api/recipes/{slug}"), &[], None).await;
@@ -508,7 +668,8 @@ impl Recipes {
     )]
     async fn update_recipe(&self, Parameters(a): Parameters<UpdateArgs>) -> ToolResult {
         let slug = try_tool!(check_slug(&a.slug));
-        let mut patch = try_tool!(self.mealie.patch_body(&a.fields).await);
+        let current = try_tool!(self.fetch(slug).await);
+        let mut patch = try_tool!(self.mealie.patch_body(&a.fields, &current).await);
         if let Some(n) = a.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
             patch.insert("name".into(), json!(n));
         }
@@ -550,6 +711,45 @@ impl Recipes {
         try_tool!(self.mealie.call(Method::DELETE, &format!("/api/recipes/{slug}"), &[], None).await);
         tracing::info!(slug, "deleted recipe");
         ok_json(json!({ "deleted": slug }))
+    }
+
+    #[tool(
+        description = "Set a recipe's photo from a public image URL (the image file itself, not a web page). \
+                       Replaces any existing photo. Returns the new image_url.",
+        annotations(title = "Set recipe photo from URL", read_only_hint = false, destructive_hint = true, open_world_hint = true)
+    )]
+    async fn set_recipe_image(&self, Parameters(a): Parameters<ImageUrlArgs>) -> ToolResult {
+        let slug = try_tool!(check_slug(&a.slug));
+        let url = try_tool!(check_import_url(&a.image_url).await);
+        try_tool!(self.fetch(slug).await);
+        try_tool!(self.mealie.call(Method::POST, &format!("/api/recipes/{slug}/image"), &[], Some(json!({ "url": url.as_str() }))).await);
+        let r = try_tool!(self.fetch(slug).await);
+        let image = self.mealie.image_url(&r);
+        if image.is_null() {
+            return tool_err("Mealie accepted the request but the recipe still has no photo; the URL may not be an image");
+        }
+        tracing::info!(slug, "set recipe image from url");
+        ok_json(json!({ "slug": slug, "image_url": image, "url": self.mealie.link(slug) }))
+    }
+
+    #[tool(
+        description = "Make a one-time link where the user can upload a photo for a recipe from their phone or computer. \
+                       Use this when the user wants to add their own photo (including one they attached in chat: you can't \
+                       pass the file through, so give them this link). Share the link with the user; it expires in 30 minutes \
+                       and works once.",
+        annotations(title = "Create photo upload link", read_only_hint = false, destructive_hint = false)
+    )]
+    async fn create_image_upload_link(&self, Parameters(a): Parameters<SlugArgs>) -> ToolResult {
+        let slug = try_tool!(check_slug(&a.slug));
+        let r = try_tool!(self.fetch(slug).await);
+        let name = r["name"].as_str().unwrap_or(slug).to_owned();
+        let token = try_tool!(self.uploads.issue(slug.to_owned(), name));
+        ok_json(json!({
+            "upload_url": format!("{}/mcp/upload/{token}", self.mealie.public_url),
+            "expires_in_minutes": upload::TTL.as_secs() / 60,
+            "single_use": true,
+            "recipe_url": self.mealie.link(slug),
+        }))
     }
 
     #[tool(
@@ -635,6 +835,8 @@ impl ServerHandler for Recipes {
             .with_instructions(
                 "Cole's recipe library (Mealie). Search before creating to avoid duplicates, reuse existing tag and \
                  category names (list_tags_and_categories), and always share the recipe link after saving. \
+                 Put calories and macros in the nutrition fields (per serving), not in notes. For photos, use \
+                 set_recipe_image with a public image URL, or create_image_upload_link for the user's own photo. \
                  Never delete without the user's explicit request.",
             )
     }
@@ -702,8 +904,13 @@ async fn main() -> anyhow::Result<()> {
         .with_legacy_session_mode(false)
         .with_json_response(true)
         .with_cancellation_token(ct.child_token());
-    let m = mealie.clone();
-    let service = StreamableHttpService::new(move || Ok(Recipes::new(m.clone())), LocalSessionManager::default().into(), config);
+    let uploads = Arc::new(upload::Uploads::default());
+    let (m, u) = (mealie.clone(), uploads.clone());
+    let service = StreamableHttpService::new(
+        move || Ok(Recipes::new(m.clone(), u.clone())),
+        LocalSessionManager::default().into(),
+        config,
+    );
 
     let mcp = axum::Router::new()
         .nest_service("/mcp", service)
@@ -713,6 +920,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/.well-known/oauth-protected-resource/mcp", get(auth::protected_resource_metadata))
         .with_state(auth)
         .merge(mcp)
+        // Photo upload pages: outside the OAuth layer (opened in the user's browser); the one-time token is the credential.
+        .merge(upload::router(upload::UploadState { mealie: mealie.clone(), uploads }))
         .route("/healthz", get(|| async { "ok" }))
         .fallback(|| async { StatusCode::NOT_FOUND });
 
