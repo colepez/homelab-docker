@@ -2,23 +2,32 @@
 //!
 //! Auth is OAuth via Keycloak (see auth.rs): claude.ai discovers the authorization server from the protected-resource
 //! metadata, the user signs in with SSO, and every request carries a Keycloak access token that is verified here.
-//! Mealie is reached over the internal docker network with a long-lived API token.
+//!
+//! Mealie is called *as the signed-in user*: Mealie's reverse-proxy login (`/api/auth/reverse-proxy`, protected by a
+//! shared secret only this server and Mealie know) issues a session for the verified Keycloak username, so Mealie's
+//! own permissions apply and changes are attributed to that person. There is no admin token in this server.
 
 mod auth;
 mod upload;
 
 use std::{
+    collections::HashMap,
     net::IpAddr,
-    sync::Arc,
-    time::Duration,
+    ops::Deref,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use anyhow::Context;
-use axum::{http::StatusCode, middleware, routing::get};
+use axum::{
+    http::{StatusCode, request::Parts},
+    middleware,
+    routing::get,
+};
 use reqwest::{Method, Url};
 use rmcp::{
     ErrorData as McpError, ServerHandler,
-    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
+    handler::server::{router::tool::ToolRouter, tool::Extension, wrapper::Parameters},
     model::*,
     schemars::{self, JsonSchema},
     tool, tool_handler, tool_router,
@@ -36,41 +45,149 @@ const LISTEN: &str = "0.0.0.0:8080";
 // Mealie client
 // ---------------------------------------------------------------------------------------------------------------
 
+/// How long a Mealie session obtained for a user is reused before asking Mealie for a fresh one.
+const SESSION_TTL: Duration = Duration::from_secs(30 * 60);
+
 struct Mealie {
     http: reqwest::Client,
     base: Url,
-    token: String,
+    /// Shared secret for Mealie's reverse-proxy login (REVERSE_PROXY_AUTH_SECRET)
+    proxy_secret: String,
     public_url: String,
     group_slug: String,
+    /// lowercase username -> (Mealie access token, reuse until)
+    sessions: Mutex<HashMap<String, (String, Instant)>>,
 }
 
 type ToolResult = Result<CallToolResult, McpError>;
 
 impl Mealie {
+    fn link(&self, slug: &str) -> String {
+        format!("{}/g/{}/r/{}", self.public_url, self.group_slug, slug)
+    }
+
+    /// A Mealie access token for `user`, via Mealie's reverse-proxy login. The session is checked to belong to exactly
+    /// that username (Mealie also matches by email, which must never pick a different account).
+    async fn session(&self, user: &str) -> Result<String, String> {
+        let key = user.to_lowercase();
+        if let Some((tok, until)) = self.sessions.lock().unwrap().get(&key) {
+            if *until > Instant::now() {
+                return Ok(tok.clone());
+            }
+        }
+        let no_account = || {
+            format!("{user} has no Mealie account yet. Sign in once at {} with Homelab SSO (that creates it), then try again.", self.public_url)
+        };
+        let url = self.base.join("/api/auth/reverse-proxy").map_err(|e| e.to_string())?;
+        let resp = self
+            .http
+            .get(url)
+            .header("X-Forwarded-User", user)
+            .header("X-Mealie-Reverse-Proxy-Secret", &self.proxy_secret)
+            .send()
+            .await
+            .map_err(|e| format!("Mealie is unreachable: {e}"))?;
+        let status = resp.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            tracing::warn!(user, "mealie reverse-proxy login refused (no such user, or wrong secret)");
+            return Err(no_account());
+        }
+        if !status.is_success() {
+            return Err(format!("Mealie login failed: {status}"));
+        }
+        let body: Value = resp.json().await.map_err(|e| format!("Mealie login: {e}"))?;
+        let tok = body["access_token"].as_str().ok_or("Mealie login returned no token")?.to_owned();
+        let me: Value = self
+            .http
+            .get(self.base.join("/api/users/self").map_err(|e| e.to_string())?)
+            .bearer_auth(&tok)
+            .send()
+            .await
+            .map_err(|e| format!("Mealie is unreachable: {e}"))?
+            .json()
+            .await
+            .map_err(|e| format!("Mealie /users/self: {e}"))?;
+        if !me["username"].as_str().is_some_and(|u| u.eq_ignore_ascii_case(user)) {
+            tracing::error!(user, "mealie reverse-proxy login returned a different account; refusing");
+            return Err(no_account());
+        }
+        let mut map = self.sessions.lock().unwrap();
+        let now = Instant::now();
+        map.retain(|_, (_, until)| *until > now);
+        map.insert(key, (tok.clone(), now + SESSION_TTL));
+        Ok(tok)
+    }
+
+    fn forget(&self, user: &str) {
+        self.sessions.lock().unwrap().remove(&user.to_lowercase());
+    }
+
+    fn image_url(&self, r: &Value) -> Value {
+        match (r["id"].as_str(), r["image"].as_str()) {
+            (Some(id), Some(img)) if !img.is_empty() => {
+                // `image` changes on every new photo, so it doubles as a cache buster
+                json!(format!("{}/api/media/recipes/{id}/images/original.webp?v={img}", self.public_url))
+            }
+            _ => Value::Null,
+        }
+    }
+}
+
+/// The Mealie client acting as one signed-in user.
+struct As {
+    m: Arc<Mealie>,
+    user: String,
+}
+
+impl Deref for As {
+    type Target = Mealie;
+    fn deref(&self) -> &Mealie {
+        &self.m
+    }
+}
+
+impl As {
+    fn new(m: Arc<Mealie>, user: String) -> Self {
+        Self { m, user }
+    }
+
     async fn call(&self, method: Method, path: &str, query: &[(&str, String)], body: Option<Value>) -> Result<Value, String> {
         let mut url = self.base.join(path).map_err(|e| e.to_string())?;
         if !query.is_empty() {
             url.query_pairs_mut().extend_pairs(query.iter().map(|(k, v)| (*k, v.as_str())));
         }
-        let mut req = self.http.request(method.clone(), url).bearer_auth(&self.token);
-        if let Some(b) = body {
-            req = req.json(&b);
+        // One retry with a fresh session if Mealie says ours expired
+        for attempt in 0..2 {
+            let tok = self.m.session(&self.user).await?;
+            let mut req = self.http.request(method.clone(), url.clone()).bearer_auth(&tok);
+            if let Some(b) = &body {
+                req = req.json(b);
+            }
+            let resp = req.send().await.map_err(|e| format!("Mealie is unreachable: {e}"))?;
+            let status = resp.status();
+            if status == reqwest::StatusCode::UNAUTHORIZED && attempt == 0 {
+                self.m.forget(&self.user);
+                continue;
+            }
+            let text = resp.text().await.map_err(|e| format!("reading Mealie response: {e}"))?;
+            if status == reqwest::StatusCode::FORBIDDEN {
+                tracing::info!(user = self.user, %method, path, "mealie denied");
+                return Err(format!("Your Mealie account ({}) isn't allowed to do that: {}", self.user, truncate(&text, 300)));
+            }
+            if !status.is_success() {
+                tracing::warn!(user = self.user, %method, path, %status, "mealie error");
+                return Err(format!("Mealie returned {status}: {}", truncate(&text, 600)));
+            }
+            if text.trim().is_empty() {
+                return Ok(Value::Null);
+            }
+            return serde_json::from_str(&text).map_err(|e| format!("Mealie sent invalid JSON: {e}"));
         }
-        let resp = req.send().await.map_err(|e| format!("Mealie is unreachable: {e}"))?;
-        let status = resp.status();
-        let text = resp.text().await.map_err(|e| format!("reading Mealie response: {e}"))?;
-        if !status.is_success() {
-            tracing::warn!(%method, path, %status, "mealie error");
-            return Err(format!("Mealie returned {status}: {}", truncate(&text, 600)));
-        }
-        if text.trim().is_empty() {
-            return Ok(Value::Null);
-        }
-        serde_json::from_str(&text).map_err(|e| format!("Mealie sent invalid JSON: {e}"))
+        Err("Mealie session expired twice in a row; try again".into())
     }
 
-    fn link(&self, slug: &str) -> String {
-        format!("{}/g/{}/r/{}", self.public_url, self.group_slug, slug)
+    async fn fetch(&self, slug: &str) -> Result<Value, String> {
+        self.call(Method::GET, &format!("/api/recipes/{slug}"), &[], None).await
     }
 
     /// Map tag/category names to Mealie organizer objects, creating any that don't exist yet.
@@ -144,16 +261,6 @@ impl Mealie {
         Ok(p)
     }
 
-    fn image_url(&self, r: &Value) -> Value {
-        match (r["id"].as_str(), r["image"].as_str()) {
-            (Some(id), Some(img)) if !img.is_empty() => {
-                // `image` changes on every new photo, so it doubles as a cache buster
-                json!(format!("{}/api/media/recipes/{id}/images/original.webp?v={img}", self.public_url))
-            }
-            _ => Value::Null,
-        }
-    }
-
     /// Upload raw image bytes as the recipe's photo (multipart PUT, as Mealie's own UI does).
     async fn upload_image(&self, slug: &str, bytes: Vec<u8>) -> Result<(), String> {
         let (ext, mime) = sniff_image(&bytes).ok_or("not a JPEG, PNG, WebP or GIF image")?;
@@ -163,10 +270,11 @@ impl Mealie {
             .mime_str(mime)
             .map_err(|e| e.to_string())?;
         let form = reqwest::multipart::Form::new().part("image", part).text("extension", ext);
+        let tok = self.m.session(&self.user).await?;
         let resp = self
             .http
             .put(url)
-            .bearer_auth(&self.token)
+            .bearer_auth(&tok)
             .multipart(form)
             .send()
             .await
@@ -578,8 +686,10 @@ impl Recipes {
         })
     }
 
-    async fn fetch(&self, slug: &str) -> Result<Value, String> {
-        self.mealie.call(Method::GET, &format!("/api/recipes/{slug}"), &[], None).await
+    /// The Mealie client for the signed-in caller (set by the auth middleware, passed through by rmcp).
+    fn me(&self, parts: &Parts) -> Result<As, String> {
+        let user = parts.extensions.get::<auth::User>().ok_or("no authenticated user on this request")?;
+        Ok(As::new(self.mealie.clone(), user.0.clone()))
     }
 
     #[tool(
@@ -587,7 +697,8 @@ impl Recipes {
                        With no query, lists the most recently updated recipes.",
         annotations(title = "Search recipes", read_only_hint = true)
     )]
-    async fn search_recipes(&self, Parameters(a): Parameters<SearchArgs>) -> ToolResult {
+    async fn search_recipes(&self, Extension(parts): Extension<Parts>, Parameters(a): Parameters<SearchArgs>) -> ToolResult {
+        let m = try_tool!(self.me(&parts));
         let mut q = vec![
             ("perPage", a.limit.unwrap_or(20).clamp(1, 100).to_string()),
             ("orderBy", "updatedAt".to_string()),
@@ -598,7 +709,7 @@ impl Recipes {
         }
         for (kind, param, wanted) in [("tags", "tags", a.tag), ("categories", "categories", a.category)] {
             if let Some(name) = wanted {
-                let all = try_tool!(self.mealie.call(Method::GET, &format!("/api/organizers/{kind}"), &[("perPage", "-1".into())], None).await);
+                let all = try_tool!(m.call(Method::GET, &format!("/api/organizers/{kind}"), &[("perPage", "-1".into())], None).await);
                 let hit = all["items"].as_array().and_then(|items| {
                     items.iter().find(|i| i["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(name.trim())))
                 });
@@ -608,7 +719,7 @@ impl Recipes {
                 }
             }
         }
-        let res = try_tool!(self.mealie.call(Method::GET, "/api/recipes", &q, None).await);
+        let res = try_tool!(m.call(Method::GET, "/api/recipes", &q, None).await);
         let recipes: Vec<Value> = res["items"].as_array().map(|a| a.iter().map(|r| self.summary(r)).collect()).unwrap_or_default();
         ok_json(json!({ "total": res["total"], "recipes": recipes }))
     }
@@ -618,9 +729,10 @@ impl Recipes {
                        nutrition per serving and photo link.",
         annotations(title = "Get recipe", read_only_hint = true)
     )]
-    async fn get_recipe(&self, Parameters(a): Parameters<SlugArgs>) -> ToolResult {
+    async fn get_recipe(&self, Extension(parts): Extension<Parts>, Parameters(a): Parameters<SlugArgs>) -> ToolResult {
+        let m = try_tool!(self.me(&parts));
         let slug = try_tool!(check_slug(&a.slug));
-        let r = try_tool!(self.fetch(slug).await);
+        let r = try_tool!(m.fetch(slug).await);
         ok_json(self.full(&r))
     }
 
@@ -628,35 +740,36 @@ impl Recipes {
         description = "Create a new recipe. Give ingredients and instructions as plain lines. Returns the saved recipe and its link.",
         annotations(title = "Create recipe", read_only_hint = false, destructive_hint = false)
     )]
-    async fn create_recipe(&self, Parameters(a): Parameters<CreateArgs>) -> ToolResult {
+    async fn create_recipe(&self, Extension(parts): Extension<Parts>, Parameters(a): Parameters<CreateArgs>) -> ToolResult {
+        let m = try_tool!(self.me(&parts));
         let name = a.name.trim();
         if name.is_empty() {
             return tool_err("name is required");
         }
-        let slug = try_tool!(self.mealie.call(Method::POST, "/api/recipes", &[], Some(json!({ "name": name }))).await);
+        let slug = try_tool!(m.call(Method::POST, "/api/recipes", &[], Some(json!({ "name": name }))).await);
         let slug = slug.as_str().unwrap_or_default().to_owned();
-        let stub = match self.fetch(&slug).await {
+        let stub = match m.fetch(&slug).await {
             Ok(s) => s,
             Err(e) => {
-                let _ = self.mealie.call(Method::DELETE, &format!("/api/recipes/{slug}"), &[], None).await;
+                let _ = m.call(Method::DELETE, &format!("/api/recipes/{slug}"), &[], None).await;
                 return tool_err(e);
             }
         };
-        let patch = match self.mealie.patch_body(&a.fields, &stub).await {
+        let patch = match m.patch_body(&a.fields, &stub).await {
             Ok(p) => p,
             Err(e) => {
-                let _ = self.mealie.call(Method::DELETE, &format!("/api/recipes/{slug}"), &[], None).await;
+                let _ = m.call(Method::DELETE, &format!("/api/recipes/{slug}"), &[], None).await;
                 return tool_err(e);
             }
         };
         if !patch.is_empty() {
-            if let Err(e) = self.mealie.call(Method::PATCH, &format!("/api/recipes/{slug}"), &[], Some(Value::Object(patch))).await {
+            if let Err(e) = m.call(Method::PATCH, &format!("/api/recipes/{slug}"), &[], Some(Value::Object(patch))).await {
                 // Don't leave an empty stub behind
-                let _ = self.mealie.call(Method::DELETE, &format!("/api/recipes/{slug}"), &[], None).await;
+                let _ = m.call(Method::DELETE, &format!("/api/recipes/{slug}"), &[], None).await;
                 return tool_err(format!("recipe not saved: {e}"));
             }
         }
-        let r = try_tool!(self.fetch(&slug).await);
+        let r = try_tool!(m.fetch(&slug).await);
         tracing::info!(slug, "created recipe");
         ok_json(self.full(&r))
     }
@@ -666,20 +779,21 @@ impl Recipes {
                        notes, tags, categories) replace the old list entirely, so fetch the recipe first and send the full edited list.",
         annotations(title = "Update recipe", read_only_hint = false, destructive_hint = true, idempotent_hint = true)
     )]
-    async fn update_recipe(&self, Parameters(a): Parameters<UpdateArgs>) -> ToolResult {
+    async fn update_recipe(&self, Extension(parts): Extension<Parts>, Parameters(a): Parameters<UpdateArgs>) -> ToolResult {
+        let m = try_tool!(self.me(&parts));
         let slug = try_tool!(check_slug(&a.slug));
-        let current = try_tool!(self.fetch(slug).await);
-        let mut patch = try_tool!(self.mealie.patch_body(&a.fields, &current).await);
+        let current = try_tool!(m.fetch(slug).await);
+        let mut patch = try_tool!(m.patch_body(&a.fields, &current).await);
         if let Some(n) = a.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
             patch.insert("name".into(), json!(n));
         }
         if patch.is_empty() {
             return tool_err("nothing to update: pass at least one field");
         }
-        let r = try_tool!(self.mealie.call(Method::PATCH, &format!("/api/recipes/{slug}"), &[], Some(Value::Object(patch))).await);
+        let r = try_tool!(m.call(Method::PATCH, &format!("/api/recipes/{slug}"), &[], Some(Value::Object(patch))).await);
         // PATCH returns the updated recipe; re-fetch by its (possibly new) slug for a consistent view
         let new_slug = r["slug"].as_str().unwrap_or(slug).to_owned();
-        let r = try_tool!(self.fetch(&new_slug).await);
+        let r = try_tool!(m.fetch(&new_slug).await);
         tracing::info!(slug = new_slug, "updated recipe");
         ok_json(self.full(&r))
     }
@@ -689,12 +803,13 @@ impl Recipes {
                        review it and use update_recipe to fix anything the scraper got wrong.",
         annotations(title = "Import recipe from URL", read_only_hint = false, destructive_hint = false, open_world_hint = true)
     )]
-    async fn import_recipe_from_url(&self, Parameters(a): Parameters<ImportArgs>) -> ToolResult {
+    async fn import_recipe_from_url(&self, Extension(parts): Extension<Parts>, Parameters(a): Parameters<ImportArgs>) -> ToolResult {
+        let m = try_tool!(self.me(&parts));
         let url = try_tool!(check_import_url(&a.url).await);
         let body = json!({ "url": url.as_str(), "includeTags": a.include_tags.unwrap_or(false) });
-        let slug = try_tool!(self.mealie.call(Method::POST, "/api/recipes/create/url", &[], Some(body)).await);
+        let slug = try_tool!(m.call(Method::POST, "/api/recipes/create/url", &[], Some(body)).await);
         let slug = slug.as_str().unwrap_or_default().to_owned();
-        let r = try_tool!(self.fetch(&slug).await);
+        let r = try_tool!(m.fetch(&slug).await);
         tracing::info!(slug, "imported recipe");
         ok_json(self.full(&r))
     }
@@ -703,12 +818,13 @@ impl Recipes {
         description = "Permanently delete a recipe. Only do this when the user explicitly asks; set confirm=true.",
         annotations(title = "Delete recipe", read_only_hint = false, destructive_hint = true)
     )]
-    async fn delete_recipe(&self, Parameters(a): Parameters<DeleteArgs>) -> ToolResult {
+    async fn delete_recipe(&self, Extension(parts): Extension<Parts>, Parameters(a): Parameters<DeleteArgs>) -> ToolResult {
+        let m = try_tool!(self.me(&parts));
         if !a.confirm {
             return tool_err("not deleted: confirm must be true (ask the user first)");
         }
         let slug = try_tool!(check_slug(&a.slug));
-        try_tool!(self.mealie.call(Method::DELETE, &format!("/api/recipes/{slug}"), &[], None).await);
+        try_tool!(m.call(Method::DELETE, &format!("/api/recipes/{slug}"), &[], None).await);
         tracing::info!(slug, "deleted recipe");
         ok_json(json!({ "deleted": slug }))
     }
@@ -718,12 +834,13 @@ impl Recipes {
                        Replaces any existing photo. Returns the new image_url.",
         annotations(title = "Set recipe photo from URL", read_only_hint = false, destructive_hint = true, open_world_hint = true)
     )]
-    async fn set_recipe_image(&self, Parameters(a): Parameters<ImageUrlArgs>) -> ToolResult {
+    async fn set_recipe_image(&self, Extension(parts): Extension<Parts>, Parameters(a): Parameters<ImageUrlArgs>) -> ToolResult {
+        let m = try_tool!(self.me(&parts));
         let slug = try_tool!(check_slug(&a.slug));
         let url = try_tool!(check_import_url(&a.image_url).await);
-        try_tool!(self.fetch(slug).await);
-        try_tool!(self.mealie.call(Method::POST, &format!("/api/recipes/{slug}/image"), &[], Some(json!({ "url": url.as_str() }))).await);
-        let r = try_tool!(self.fetch(slug).await);
+        try_tool!(m.fetch(slug).await);
+        try_tool!(m.call(Method::POST, &format!("/api/recipes/{slug}/image"), &[], Some(json!({ "url": url.as_str() }))).await);
+        let r = try_tool!(m.fetch(slug).await);
         let image = self.mealie.image_url(&r);
         if image.is_null() {
             return tool_err("Mealie accepted the request but the recipe still has no photo; the URL may not be an image");
@@ -739,11 +856,12 @@ impl Recipes {
                        and works once.",
         annotations(title = "Create photo upload link", read_only_hint = false, destructive_hint = false)
     )]
-    async fn create_image_upload_link(&self, Parameters(a): Parameters<SlugArgs>) -> ToolResult {
+    async fn create_image_upload_link(&self, Extension(parts): Extension<Parts>, Parameters(a): Parameters<SlugArgs>) -> ToolResult {
+        let m = try_tool!(self.me(&parts));
         let slug = try_tool!(check_slug(&a.slug));
-        let r = try_tool!(self.fetch(slug).await);
+        let r = try_tool!(m.fetch(slug).await);
         let name = r["name"].as_str().unwrap_or(slug).to_owned();
-        let token = try_tool!(self.uploads.issue(slug.to_owned(), name));
+        let token = try_tool!(self.uploads.issue(slug.to_owned(), name, m.user.clone()));
         ok_json(json!({
             "upload_url": format!("{}/mcp/upload/{token}", self.mealie.public_url),
             "expires_in_minutes": upload::TTL.as_secs() / 60,
@@ -756,10 +874,11 @@ impl Recipes {
         description = "List all tags and categories with recipe counts, to reuse existing names instead of inventing near-duplicates.",
         annotations(title = "List tags and categories", read_only_hint = true)
     )]
-    async fn list_tags_and_categories(&self) -> ToolResult {
+    async fn list_tags_and_categories(&self, Extension(parts): Extension<Parts>) -> ToolResult {
+        let m = try_tool!(self.me(&parts));
         let mut out = Map::new();
         for kind in ["tags", "categories"] {
-            let res = try_tool!(self.mealie.call(Method::GET, &format!("/api/organizers/{kind}"), &[("perPage", "-1".into())], None).await);
+            let res = try_tool!(m.call(Method::GET, &format!("/api/organizers/{kind}"), &[("perPage", "-1".into())], None).await);
             let list: Vec<Value> = res["items"]
                 .as_array()
                 .map(|a| a.iter().map(|i| json!({ "name": i["name"], "recipes": i["recipeCount"] })).collect())
@@ -773,7 +892,8 @@ impl Recipes {
         description = "Add a recipe (or a free-text entry) to the meal plan on a given date.",
         annotations(title = "Add to meal plan", read_only_hint = false, destructive_hint = false)
     )]
-    async fn add_to_meal_plan(&self, Parameters(a): Parameters<MealPlanAddArgs>) -> ToolResult {
+    async fn add_to_meal_plan(&self, Extension(parts): Extension<Parts>, Parameters(a): Parameters<MealPlanAddArgs>) -> ToolResult {
+        let m = try_tool!(self.me(&parts));
         let meal = a.meal.unwrap_or_else(|| "dinner".into()).to_lowercase();
         if !["breakfast", "lunch", "dinner", "side", "snack", "drink", "dessert"].contains(&meal.as_str()) {
             return tool_err(format!("unknown meal {meal:?}"));
@@ -786,12 +906,12 @@ impl Recipes {
         });
         if let Some(slug) = a.slug {
             let slug = try_tool!(check_slug(&slug));
-            let r = try_tool!(self.fetch(slug).await);
+            let r = try_tool!(m.fetch(slug).await);
             body["recipeId"] = r["id"].clone();
         } else if body["title"].as_str().unwrap_or_default().is_empty() {
             return tool_err("pass a recipe slug or a title");
         }
-        let res = try_tool!(self.mealie.call(Method::POST, "/api/households/mealplans", &[], Some(body)).await);
+        let res = try_tool!(m.call(Method::POST, "/api/households/mealplans", &[], Some(body)).await);
         ok_json(json!({ "added": { "date": res["date"], "meal": res["entryType"], "title": res["title"],
                                     "recipe": res["recipe"]["name"], "id": res["id"] } }))
     }
@@ -800,7 +920,8 @@ impl Recipes {
         description = "Show the meal plan between two dates (inclusive).",
         annotations(title = "Get meal plan", read_only_hint = true)
     )]
-    async fn get_meal_plan(&self, Parameters(a): Parameters<MealPlanGetArgs>) -> ToolResult {
+    async fn get_meal_plan(&self, Extension(parts): Extension<Parts>, Parameters(a): Parameters<MealPlanGetArgs>) -> ToolResult {
+        let m = try_tool!(self.me(&parts));
         let q = [
             ("start_date", a.start_date.trim().to_owned()),
             ("end_date", a.end_date.trim().to_owned()),
@@ -808,7 +929,7 @@ impl Recipes {
             ("orderBy", "date".to_owned()),
             ("orderDirection", "asc".to_owned()),
         ];
-        let res = try_tool!(self.mealie.call(Method::GET, "/api/households/mealplans", &q, None).await);
+        let res = try_tool!(m.call(Method::GET, "/api/households/mealplans", &q, None).await);
         let entries: Vec<Value> = res["items"]
             .as_array()
             .map(|a| {
@@ -893,9 +1014,14 @@ async fn main() -> anyhow::Result<()> {
     let mealie = Arc::new(Mealie {
         http,
         base: Url::parse(&std::env::var("MEALIE_URL").unwrap_or_else(|_| "http://mealie:9000".into()))?,
-        token: env("MEALIE_API_TOKEN")?,
+        proxy_secret: {
+            let s = env("MEALIE_REVERSE_PROXY_SECRET")?;
+            anyhow::ensure!(s.len() >= 32, "MEALIE_REVERSE_PROXY_SECRET is too short");
+            s
+        },
         public_url,
         group_slug: std::env::var("MEALIE_GROUP_SLUG").unwrap_or_else(|_| "home".into()),
+        sessions: Mutex::new(HashMap::new()),
     });
 
     let ct = CancellationToken::new();

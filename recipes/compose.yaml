@@ -16,7 +16,7 @@ services:
       - WEB_CONCURRENCY=1
       # Sign-in via Keycloak (realm homelab, client "mealie"). Realm roles arrive as the "groups" claim:
       # mealie-users may sign in, mealie-admins are Mealie admins. Users are matched to existing accounts by email.
-      # Password login stays configurable as a break-glass; the recipes-mcp API token works either way.
+      # Password login stays configurable as a break-glass.
       - OIDC_AUTH_ENABLED=true
       - OIDC_SIGNUP_ENABLED=true
       - OIDC_CONFIGURATION_URL=${RECIPES_OIDC_CONFIGURATION_URL}
@@ -29,6 +29,12 @@ services:
       - OIDC_REMEMBER_ME=true
       - OIDC_AUTO_REDIRECT=${RECIPES_OIDC_AUTO_REDIRECT:-false}
       - ALLOW_PASSWORD_LOGIN=${RECIPES_ALLOW_PASSWORD_LOGIN:-true}
+      # recipes-mcp acts as the signed-in user via Mealie's reverse-proxy login: it sends the Keycloak-verified username
+      # plus this shared secret to /api/auth/reverse-proxy. No signup through it (users are created by their SSO login).
+      # The tunnel 404s that path for public traffic; only recipes-mcp on the internal network reaches it.
+      - REVERSE_PROXY_AUTH_ENABLED=true
+      - REVERSE_PROXY_AUTH_SIGNUP_ENABLED=false
+      - REVERSE_PROXY_AUTH_SECRET=${RECIPES_REVERSE_PROXY_SECRET}
     volumes:
       - ${RECIPES_DATA_PATH}:/app/data
     networks:
@@ -50,7 +56,7 @@ services:
       - MCP_OIDC_ISSUER=${RECIPES_MCP_OIDC_ISSUER}
       - MCP_OIDC_JWKS_URL=http://keycloak:8080/realms/homelab/protocol/openid-connect/certs
       - MCP_ALLOWED_HOSTS=${MCP_ALLOWED_HOSTS}
-      - MEALIE_API_TOKEN=${MEALIE_API_TOKEN}
+      - MEALIE_REVERSE_PROXY_SECRET=${RECIPES_REVERSE_PROXY_SECRET}
       - MEALIE_URL=http://mealie:9000
     depends_on:
       - mealie

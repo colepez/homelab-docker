@@ -18,7 +18,7 @@ use axum::{
     routing::get,
 };
 
-use crate::{Mealie, sniff_image};
+use crate::{As, Mealie, sniff_image};
 
 pub const TTL: Duration = Duration::from_secs(30 * 60);
 const MAX_PENDING: usize = 20;
@@ -27,6 +27,8 @@ const MAX_BYTES: usize = 15 * 1024 * 1024;
 struct Pending {
     slug: String,
     name: String,
+    /// Keycloak username of whoever asked for the link; the photo is uploaded to Mealie as them
+    user: String,
     expires: Instant,
 }
 
@@ -36,7 +38,7 @@ pub struct Uploads {
 }
 
 impl Uploads {
-    pub fn issue(&self, slug: String, name: String) -> Result<String, String> {
+    pub fn issue(&self, slug: String, name: String, user: String) -> Result<String, String> {
         let mut buf = [0u8; 32];
         getrandom::fill(&mut buf).map_err(|e| format!("no randomness: {e}"))?;
         let token: String = buf.iter().map(|b| format!("{b:02x}")).collect();
@@ -46,13 +48,13 @@ impl Uploads {
         if map.len() >= MAX_PENDING {
             return Err("too many open upload links; wait for some to expire (30 minutes)".into());
         }
-        map.insert(token.clone(), Pending { slug, name, expires: now + TTL });
+        map.insert(token.clone(), Pending { slug, name, user, expires: now + TTL });
         Ok(token)
     }
 
-    fn lookup(&self, token: &str) -> Option<(String, String)> {
+    fn lookup(&self, token: &str) -> Option<(String, String, String)> {
         let map = self.pending.lock().unwrap();
-        map.get(token).filter(|p| p.expires > Instant::now()).map(|p| (p.slug.clone(), p.name.clone()))
+        map.get(token).filter(|p| p.expires > Instant::now()).map(|p| (p.slug.clone(), p.name.clone(), p.user.clone()))
     }
 
     fn consume(&self, token: &str) {
@@ -107,7 +109,7 @@ fn expired() -> Response {
 }
 
 async fn page(State(st): State<UploadState>, Path(token): Path<String>) -> Response {
-    let Some((_, name)) = st.uploads.lookup(&token) else { return expired() };
+    let Some((_, name, _)) = st.uploads.lookup(&token) else { return expired() };
     // The script downsizes to <= 2400px JPEG in the browser (also converts iPhone HEIC); without JS the form posts as is.
     let body = format!(
         r#"<h1>Add a photo to “{name}”</h1>
@@ -141,7 +143,8 @@ f.addEventListener('submit',async e=>{{
 }
 
 async fn receive(State(st): State<UploadState>, Path(token): Path<String>, mut form: Multipart) -> Response {
-    let Some((slug, name)) = st.uploads.lookup(&token) else { return expired() };
+    let Some((slug, name, user)) = st.uploads.lookup(&token) else { return expired() };
+    let me = As::new(st.mealie.clone(), user);
     let fail = |status, msg: &str| {
         shell(status, "Upload failed", &format!("<h1>Upload failed</h1><p>{}</p><p><a href=\"\">Try again</a></p>", esc(msg)))
     };
@@ -167,14 +170,17 @@ async fn receive(State(st): State<UploadState>, Path(token): Path<String>, mut f
     if sniff_image(&bytes).is_none() {
         return fail(StatusCode::UNSUPPORTED_MEDIA_TYPE, "That file isn't a JPEG, PNG, WebP or GIF image.");
     }
-    if let Err(e) = st.mealie.upload_image(&slug, bytes.to_vec()).await {
+    if let Err(e) = me.upload_image(&slug, bytes.to_vec()).await {
         tracing::warn!(slug, error = e, "photo upload failed");
+        if e.contains("isn't allowed") || e.contains("no Mealie account") {
+            return fail(StatusCode::FORBIDDEN, &e);
+        }
         return fail(StatusCode::BAD_GATEWAY, "Mealie couldn't save the photo. Try again, or try a different image.");
     }
     st.uploads.consume(&token);
     tracing::info!(slug, "recipe photo uploaded via upload link");
     let link = st.mealie.link(&slug);
-    let preview = match st.mealie.call(reqwest::Method::GET, &format!("/api/recipes/{slug}"), &[], None).await {
+    let preview = match me.fetch(&slug).await {
         Ok(r) => st.mealie.image_url(&r).as_str().map(|u| format!(r#"<img src="{}" alt="">"#, esc(u))).unwrap_or_default(),
         Err(_) => String::new(),
     };

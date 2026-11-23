@@ -52,6 +52,11 @@ struct RealmAccess {
 
 type Denied = (StatusCode, &'static str);
 
+/// The verified Keycloak username of the caller. The middleware puts it in the request extensions; tools read it
+/// (via the HTTP request parts rmcp passes through) and act in Mealie as this user.
+#[derive(Clone, Debug)]
+pub struct User(pub String);
+
 impl Auth {
     pub fn new(issuer: String, jwks_url: String, audience: String, allowed_roles: Vec<String>, resource: String, http: reqwest::Client) -> Self {
         Self { issuer, jwks_url, audience, allowed_roles, resource, http, keys: RwLock::new(Keys::default()) }
@@ -110,7 +115,8 @@ impl Auth {
             invalid
         })?;
         let claims = claims.claims;
-        let user = claims.preferred_username.unwrap_or_else(|| "?".into());
+        // The username decides which Mealie account we act as, so a token without one is unusable.
+        let user = claims.preferred_username.filter(|u| !u.trim().is_empty()).ok_or(invalid)?;
         if !claims.realm_access.roles.iter().any(|r| self.allowed_roles.contains(r)) {
             tracing::warn!(user, "token lacks an allowed role");
             return Err((StatusCode::FORBIDDEN, "insufficient_scope"));
@@ -136,7 +142,7 @@ fn split_origin(url: &str) -> (&str, &str) {
 }
 
 /// axum middleware guarding the MCP endpoint
-pub async fn require_auth(State(auth): State<Arc<Auth>>, req: Request, next: Next) -> Response {
+pub async fn require_auth(State(auth): State<Arc<Auth>>, mut req: Request, next: Next) -> Response {
     let token = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -148,6 +154,7 @@ pub async fn require_auth(State(auth): State<Arc<Auth>>, req: Request, next: Nex
         Some(t) => match auth.check(t).await {
             Ok(user) => {
                 tracing::debug!(user, "authorized");
+                req.extensions_mut().insert(User(user));
                 next.run(req).await
             }
             Err((status, err)) => auth.challenge((status, Some(err))),
