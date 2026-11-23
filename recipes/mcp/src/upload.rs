@@ -143,7 +143,14 @@ f.addEventListener('submit',async e=>{{
 }
 
 async fn receive(State(st): State<UploadState>, Path(token): Path<String>, mut form: Multipart) -> Response {
-    let Some((slug, name, user)) = st.uploads.lookup(&token) else { return expired() };
+    let Some((slug, name, user)) = st.uploads.lookup(&token) else {
+        // Read (and drop) the upload before answering: closing while a proxy is still sending the body turns the
+        // 404 into a 502 at Cloudflare. The body-size limit still applies.
+        while let Ok(Some(field)) = form.next_field().await {
+            let _ = field.bytes().await;
+        }
+        return expired();
+    };
     let me = As::new(st.mealie.clone(), user);
     let fail = |status, msg: &str| {
         shell(status, "Upload failed", &format!("<h1>Upload failed</h1><p>{}</p><p><a href=\"\">Try again</a></p>", esc(msg)))
