@@ -3,7 +3,7 @@
 # and the MCP path to recipes-mcp. Data lives under the private /srv/docker tree, so the hourly rsync backs it up.
 services:
   mealie:
-    image: ghcr.io/mealie-recipes/mealie:v3.30.0
+    image: ghcr.io/mealie-recipes/mealie:v3.31.0
     container_name: mealie
     restart: unless-stopped
     mem_limit: 1g
