@@ -1,0 +1,21 @@
+[package]
+name = "recipes-join"
+version = "0.1.0"
+edition = "2024"
+description = "Invite-link sign-up page: creates Keycloak users in the Mealie group via a group-scoped service account"
+
+[dependencies]
+axum = { version = "0.8", features = ["form"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net"] }
+# Only talks to Keycloak and Home Assistant over the internal network (plain HTTP), so no TLS stack
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+getrandom = "0.3"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[profile.release]
+strip = true

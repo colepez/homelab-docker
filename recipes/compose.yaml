@@ -63,6 +63,33 @@ services:
     networks:
       - edge
 
+  # Invite-link sign-up page (source in ./join). The tunnel routes <RECIPES_BASE_URL>/join/* here. Creates Keycloak users
+  # only as members of group Mealie, through service account mealie-join whose sole power is a fine-grained admin
+  # permission on that group; Keycloak emails the set-password link. Invites are made with the CLI:
+  #   docker exec recipes-join recipes-join new --days 7 --uses 10 --note "..."   (also: list, revoke <id>)
+  # Codes are stored hashed in the data dir. Each sign-up pings a Home Assistant webhook (local-only) for a phone push.
+  recipes-join:
+    build: ./join
+    image: recipes-join:local
+    pull_policy: build
+    container_name: recipes-join
+    restart: unless-stopped
+    init: true
+    mem_limit: 64m
+    environment:
+      - PUBLIC_URL=${RECIPES_BASE_URL}
+      - KC_URL=http://keycloak:8080
+      - KC_REALM=homelab
+      - KC_CLIENT_ID=mealie-join
+      - KC_CLIENT_SECRET=${RECIPES_JOIN_KC_SECRET}
+      - KC_GROUP=/Mealie
+      - NOTIFY_URL=${RECIPES_JOIN_NOTIFY_URL}
+      - DATA_DIR=/data
+    volumes:
+      - ${RECIPES_JOIN_DATA_PATH}:/data
+    networks:
+      - edge
+
 networks:
   edge:
     name: edge
