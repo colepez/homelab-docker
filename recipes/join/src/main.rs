@@ -40,6 +40,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .with_ansi(false) // plain text for journald/Wazuh
         .init();
     let http = reqwest::Client::builder().timeout(Duration::from_secs(20)).build()?;
     let kc = keycloak::Keycloak::new(

@@ -770,7 +770,7 @@ impl Recipes {
             }
         }
         let r = try_tool!(m.fetch(&slug).await);
-        tracing::info!(slug, "created recipe");
+        tracing::info!(user = m.user, slug, "created recipe");
         ok_json(self.full(&r))
     }
 
@@ -794,7 +794,7 @@ impl Recipes {
         // PATCH returns the updated recipe; re-fetch by its (possibly new) slug for a consistent view
         let new_slug = r["slug"].as_str().unwrap_or(slug).to_owned();
         let r = try_tool!(m.fetch(&new_slug).await);
-        tracing::info!(slug = new_slug, "updated recipe");
+        tracing::info!(user = m.user, slug = new_slug, "updated recipe");
         ok_json(self.full(&r))
     }
 
@@ -810,7 +810,7 @@ impl Recipes {
         let slug = try_tool!(m.call(Method::POST, "/api/recipes/create/url", &[], Some(body)).await);
         let slug = slug.as_str().unwrap_or_default().to_owned();
         let r = try_tool!(m.fetch(&slug).await);
-        tracing::info!(slug, "imported recipe");
+        tracing::info!(user = m.user, slug, "imported recipe");
         ok_json(self.full(&r))
     }
 
@@ -825,7 +825,7 @@ impl Recipes {
         }
         let slug = try_tool!(check_slug(&a.slug));
         try_tool!(m.call(Method::DELETE, &format!("/api/recipes/{slug}"), &[], None).await);
-        tracing::info!(slug, "deleted recipe");
+        tracing::info!(user = m.user, slug, "deleted recipe");
         ok_json(json!({ "deleted": slug }))
     }
 
@@ -845,7 +845,7 @@ impl Recipes {
         if image.is_null() {
             return tool_err("Mealie accepted the request but the recipe still has no photo; the URL may not be an image");
         }
-        tracing::info!(slug, "set recipe image from url");
+        tracing::info!(user = m.user, slug, "set recipe image from url");
         ok_json(json!({ "slug": slug, "image_url": image, "url": self.mealie.link(slug) }))
     }
 
@@ -912,6 +912,7 @@ impl Recipes {
             return tool_err("pass a recipe slug or a title");
         }
         let res = try_tool!(m.call(Method::POST, "/api/households/mealplans", &[], Some(body)).await);
+        tracing::info!(user = m.user, date = res["date"].as_str().unwrap_or_default(), "added to meal plan");
         ok_json(json!({ "added": { "date": res["date"], "meal": res["entryType"], "title": res["title"],
                                     "recipe": res["recipe"]["name"], "id": res["id"] } }))
     }
@@ -987,6 +988,7 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,rmcp=warn".into()),
         )
+        .with_ansi(false) // plain text for journald/Wazuh
         .init();
 
     let env = |k: &str| std::env::var(k).with_context(|| format!("{k} is not set"));

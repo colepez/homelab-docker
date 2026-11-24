@@ -5,6 +5,12 @@ services:
   mealie:
     image: ghcr.io/mealie-recipes/mealie:v3.31.0
     container_name: mealie
+    # journald so the dockerz Wazuh agent (which reads journald) ships these logs; tag = container name.
+    # `docker logs` still works with this driver.
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
     restart: unless-stopped
     mem_limit: 1g
     environment:
@@ -54,6 +60,12 @@ services:
     image: recipes-mcp:local
     pull_policy: build
     container_name: recipes-mcp
+    # journald so the dockerz Wazuh agent (which reads journald) ships these logs; tag = container name.
+    # `docker logs` still works with this driver.
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
     restart: unless-stopped
     init: true
     mem_limit: 128m
@@ -79,6 +91,12 @@ services:
     image: recipes-join:local
     pull_policy: build
     container_name: recipes-join
+    # journald so the dockerz Wazuh agent (which reads journald) ships these logs; tag = container name.
+    # `docker logs` still works with this driver.
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
     restart: unless-stopped
     init: true
     mem_limit: 64m

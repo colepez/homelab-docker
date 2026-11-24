@@ -185,7 +185,7 @@ async fn receive(State(st): State<UploadState>, Path(token): Path<String>, mut f
         return fail(StatusCode::BAD_GATEWAY, "Mealie couldn't save the photo. Try again, or try a different image.");
     }
     st.uploads.consume(&token);
-    tracing::info!(slug, "recipe photo uploaded via upload link");
+    tracing::info!(user = me.user, slug, "recipe photo uploaded via upload link");
     let link = st.mealie.link(&slug);
     let preview = match me.fetch(&slug).await {
         Ok(r) => st.mealie.image_url(&r).as_str().map(|u| format!(r#"<img src="{}" alt="">"#, esc(u))).unwrap_or_default(),

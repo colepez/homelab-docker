@@ -15,6 +15,12 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.2
     container_name: keycloak
+    # journald so the dockerz Wazuh agent (which reads journald) ships these logs; tag = container name.
+    # `docker logs` still works with this driver.
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
     restart: unless-stopped
     command: start
     environment:
@@ -33,6 +39,8 @@ services:
       - KC_PROXY_HEADERS=xforwarded
       # CVE-2026-114938 (Java4Shell) mitigation until the image ships a patched JDK
       - JAVA_OPTS_APPEND=-XX:-UseBASE64Intrinsics
+      # Log successful login/register/etc. events too (default: only errors, at WARN), for Wazuh
+      - KC_SPI_EVENTS_LISTENER__JBOSS_LOGGING__SUCCESS_LEVEL=info
     depends_on:
       - keycloak-db
     networks:
