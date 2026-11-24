@@ -35,8 +35,14 @@ services:
       - REVERSE_PROXY_AUTH_ENABLED=true
       - REVERSE_PROXY_AUTH_SIGNUP_ENABLED=false
       - REVERSE_PROXY_AUTH_SECRET=${RECIPES_REVERSE_PROXY_SECRET}
+      # Mealie logs all settings at startup and only hides a few, so secrets like OIDC_CLIENT_SECRET and
+      # REVERSE_PROXY_AUTH_SECRET would land in mealie.log and the container log. This logging config (from the
+      # private tree) is Mealie's production config plus a filter that redacts *SECRET/*PASSWORD/*TOKEN/*API_KEY values.
+      - LOG_CONFIG_OVERRIDE=/opt/homelab-logconf/logconf.json
+      - PYTHONPATH=/opt/homelab-logconf
     volumes:
       - ${RECIPES_DATA_PATH}:/app/data
+      - ${RECIPES_LOGCONF_PATH}:/opt/homelab-logconf:ro
     networks:
       - edge
 
