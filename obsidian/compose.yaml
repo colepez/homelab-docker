@@ -1,0 +1,29 @@
+# obsidian: the Obsidian desktop app served in the browser (linuxserver/obsidian, Selkies web desktop), holding the
+# homelab documentation vault. No published ports: nginx-proxy reaches it over the edge network and serves it as a
+# LAN-only vhost behind the shared SSO gate (sso-gate.inc, realm role homelab-admins).
+# The vault (/vault) is plain markdown in the private repo; /config is the app profile (not tracked).
+services:
+  obsidian:
+    image: lscr.io/linuxserver/obsidian:latest
+    container_name: obsidian
+    restart: unless-stopped
+    mem_limit: 2g
+    shm_size: 1gb
+    # Electron needs syscalls Docker's default seccomp profile blocks (linuxserver recommendation)
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+      - TITLE=Homelab Obsidian
+    volumes:
+      - /srv/docker/obsidian/config:/config
+      - /srv/docker/obsidian/vault:/vault
+    networks:
+      - edge
+
+networks:
+  edge:
+    name: edge
+    external: true
